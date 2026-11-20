@@ -468,84 +468,132 @@ with tabs[2]:
 # ======================================================================================
 with tabs[3]:
     st.markdown(
-        "Un investisseur en euros détenant un mandat **HY US** est exposé au dollar. On simule une couverture "
-        "par **vente d'USD à terme**, rebalancée périodiquement : entre deux rebalancements le ratio de couverture "
-        "dérive avec la valeur du portefeuille. Le portage du forward ≈ **€STR – SOFR**."
+        "**Le problème :** un mandat HY US est investi en dollars, alors que le fonds raisonne en euros. "
+        "**La solution simulée :** vendre des dollars à terme pour neutraliser le change, en réajustant la "
+        "couverture à intervalle régulier."
     )
     usd_funds = [t for t, mm in D.FUNDS.items() if mm["segment"] == "HY US"]
-    c = st.columns(4)
-    hf = c[0].selectbox("Fonds USD", usd_funds, format_func=label, key="fx_fund")
-    target = c[1].slider("Ratio de couverture cible", 0, 100, 100, 5, format="%d %%") / 100
-    freq_lab = c[2].selectbox("Rebalancement", ["Mensuel", "Trimestriel", "Hebdomadaire"])
-    band = c[3].slider("Bande de tolérance (±)", 0.5, 5.0, 2.0, 0.5, format="%.1f %%") / 100
+    with st.expander("⚙️ Paramètres de la couverture", expanded=False):
+        c = st.columns(5)
+        hf = c[0].selectbox("Fonds USD couvert", usd_funds, format_func=short, key="fx_fund")
+        mandate = c[1].number_input("Encours du mandat (M€)", 100, 10000, 1000, 100)
+        target = c[2].slider("Ratio de couverture cible", 0, 100, 100, 5, format="%d %%") / 100
+        freq_lab = c[3].selectbox("Réajustement", ["Mensuel", "Trimestriel", "Hebdomadaire"])
+        band = c[4].slider("Tolérance (±)", 0.5, 5.0, 2.0, 0.5, format="%.1f %%") / 100
     freq = {"Mensuel": "M", "Trimestriel": "Q", "Hebdomadaire": "W"}[freq_lab]
 
     hs = A.fx_hedge_simulation(levels[hf], levels["EURUSD=X"], fred["SOFR"], fred["ESTR"], target, freq)
     hs = hs.loc[hs.index > start]
     base = hs[["local_usd", "unhedged_eur", "hedged_eur"]]
     base = base / base.iloc[0] * 100
-    breaches = hs[hs["deviation"].abs() > band]
-
+    wk = base.resample("W-FRI").last().pct_change().dropna()
+    vol = wk.std() * np.sqrt(52)
+    mdd = {k: A.drawdown(wk[k]).min() for k in wk}
     yrs = (hs.index[-1] - hs.index[0]).days / 365.25
     ann = (base.iloc[-1] / 100) ** (1 / yrs) - 1
-    k = st.columns(5)
-    k[0].metric("Rdt local USD (ann.)", fmt_pct(ann["local_usd"]))
-    k[1].metric("Rdt EUR non couvert", fmt_pct(ann["unhedged_eur"]))
-    k[2].metric("Rdt EUR couvert", fmt_pct(ann["hedged_eur"]))
-    k[3].metric("Portage moyen (€STR–SOFR)", fmt_pct(hs["carry_ann"].mean()), "coût" if hs["carry_ann"].mean() < 0 else "gain", delta_color="off")
-    k[4].metric("Ratio actuel", f"{hs['ratio'].iloc[-1]:.1%}", f"{hs['deviation'].iloc[-1] * 100:+.2f} pts vs cible", delta_color="off")
+    cost = ann["hedged_eur"] - ann["unhedged_eur"]
+
+    # épisodes de dépassement (jours consécutifs hors bande)
+    out = hs["deviation"].abs() > band
+    ep_id = (out & ~out.shift(fill_value=False)).cumsum()[out]
+    episodes = (
+        hs.loc[out].assign(ep=ep_id).groupby("ep")
+        .agg(Début=("ratio", lambda x: x.index[0]), Fin=("ratio", lambda x: x.index[-1]),
+             Jours=("ratio", "size"), **{"Écart max": ("deviation", lambda x: x.loc[x.abs().idxmax()])})
+    )
+
+    # --- message clé -------------------------------------------------------------------
+    st.info(
+        f"#### En bref\n"
+        f"Sur la période, couvrir le dollar a **{'coûté' if cost < 0 else 'rapporté'} {fmt_pct(abs(cost))} par an** "
+        f"({fmt_pct(ann['unhedged_eur'])} non couvert → {fmt_pct(ann['hedged_eur'])} couvert), "
+        f"principalement à cause du différentiel de taux €STR – SOFR ({fmt_pct(hs['carry_ann'].mean())} en moyenne). "
+        f"En contrepartie, la volatilité du mandat en euros passe de **{fmt_pct(vol['unhedged_eur'], 1)} à "
+        f"{fmt_pct(vol['hedged_eur'], 1)}** et le pire repli de {fmt_pct(mdd['unhedged_eur'], 1)} à "
+        f"{fmt_pct(mdd['hedged_eur'], 1)}."
+    )
+
+    # --- statut du jour ----------------------------------------------------------------
+    ratio_now, dev_now = hs["ratio"].iloc[-1], hs["deviation"].iloc[-1]
+    expo_usd = mandate * levels["EURUSD=X"].dropna().iloc[-1]  # exposition en M$
+    adjust = -dev_now * expo_usd
+    if abs(dev_now) <= band:
+        st.success(
+            f"✅ **Aujourd'hui : couverture dans la bande** — ratio {ratio_now:.1%} pour une cible de {target:.0%} "
+            f"(tolérance ±{band:.1%}). Aucune action requise."
+        )
+    else:
+        st.error(
+            f"⚠️ **Aujourd'hui : couverture hors bande** — ratio {ratio_now:.1%} pour une cible de {target:.0%}. "
+            f"Action : **{'vendre' if adjust > 0 else 'racheter'} environ {abs(adjust):,.0f} M$ à terme**.".replace(",", " ")
+        )
+
+    k = st.columns(4)
+    k[0].metric("Coût / gain de la couverture", fmt_pct(cost, 2) + " / an", help="Rendement couvert moins rendement non couvert, en euros.")
+    k[1].metric("Volatilité en EUR", fmt_pct(vol["hedged_eur"], 1), f"{(vol['hedged_eur'] - vol['unhedged_eur']) * 100:+.1f} pts vs non couvert",
+                delta_color="inverse", help="Écart-type annualisé des rendements hebdomadaires en euros.")
+    k[2].metric("Pire repli en EUR", fmt_pct(mdd["hedged_eur"], 1), f"{(mdd['hedged_eur'] - mdd['unhedged_eur']) * 100:+.1f} pts vs non couvert",
+                help="Max drawdown du mandat couvert, comparé au mandat non couvert.")
+    k[3].metric("Dépassements de la bande", f"{len(episodes)} épisode{'s' if len(episodes) > 1 else ''}",
+                f"{episodes['Jours'].mean():.0f} jours en moyenne" if len(episodes) else "aucun", delta_color="off",
+                help="Périodes consécutives pendant lesquelles le ratio de couverture est sorti de la bande de tolérance.")
 
     left, right = st.columns(2)
     with left:
-        fig = px.line(base.rename(columns={"local_usd": "Local USD", "unhedged_eur": "EUR non couvert", "hedged_eur": "EUR couvert"}),
-                      title="Performance en base 100", height=380, labels={"value": "", "date": "", "Date": ""})
-        fig.update_layout(legend_title=None, margin=dict(t=50, b=10), hovermode="x unified")
+        fig = px.line(base.rename(columns={"local_usd": "En dollars", "unhedged_eur": "En euros, non couvert", "hedged_eur": "En euros, couvert"}),
+                      title="Performance du mandat (base 100)", height=360, labels={"value": "", "date": "", "Date": ""},
+                      color_discrete_sequence=["#9aa5b1", "#e76f51", "#1f5fa8"])
+        fig.update_layout(legend_title=None, margin=dict(t=50, b=10), hovermode="x unified", legend=dict(orientation="h", y=-0.15))
         st.plotly_chart(fig, width="stretch")
     with right:
         fig = go.Figure()
-        fig.add_scatter(x=hs.index, y=hs["ratio"], name="Ratio de couverture", line=dict(color="#264653"))
         fig.add_hrect(y0=target - band, y1=target + band, fillcolor="green", opacity=0.08, line_width=0)
+        fig.add_scatter(x=hs.index, y=hs["ratio"], name="Ratio de couverture", line=dict(color="#264653"))
         fig.add_hline(y=target, line_dash="dot")
-        fig.add_scatter(x=breaches.index, y=breaches["ratio"], mode="markers", name="Hors bande", marker=dict(color="red", size=5))
-        fig.update_layout(title=f"Suivi des déviations — {len(breaches)} jours hors bande", height=380,
+        fig.add_scatter(x=hs.index[out], y=hs["ratio"][out], mode="markers", name="Hors bande", marker=dict(color="red", size=4))
+        fig.update_layout(title="Ratio de couverture (zone verte = tolérance)", height=360,
                           yaxis_tickformat=".0%", margin=dict(t=50, b=10), legend=dict(orientation="h", y=-0.15))
         st.plotly_chart(fig, width="stretch")
 
-    st.caption(
-        f"Écart de rendement couvert vs non couvert : {fmt_pct(ann['hedged_eur'] - ann['unhedged_eur'])} par an. "
-        "Le coût de couverture dépend du différentiel de taux EUR/USD ; la couverture supprime la volatilité "
-        "du change mais pas le risque de crédit sous-jacent."
-    )
-    if len(breaches):
-        with st.expander(f"Journal des dépassements ({len(breaches)})"):
-            st.dataframe(breaches[["ratio", "deviation"]].tail(50).sort_index(ascending=False)
-                         .style.format({"ratio": "{:.2%}", "deviation": "{:+.2%}"}), width="stretch")
+    if len(episodes):
+        with st.expander(f"Journal des dépassements ({len(episodes)} épisodes)"):
+            st.dataframe(
+                episodes.sort_values("Début", ascending=False).reset_index(drop=True)
+                .style.format({"Début": "{:%d/%m/%Y}", "Fin": "{:%d/%m/%Y}", "Écart max": "{:+.2%}"}),
+                width="stretch", hide_index=True,
+            )
+    st.caption("Hypothèses : forward valorisé par différentiel de taux courts (sans base cross-currency), "
+               "réajustement au dernier jour ouvré de chaque période. La couverture neutralise le change, pas le risque de crédit.")
 
 # ======================================================================================
-# 5. Overlay options — reporting hebdomadaire d'un put spread
+# 5. Overlay options — protection actions et reporting hebdomadaire
 # ======================================================================================
 with tabs[4]:
     st.markdown(
-        "Stratégie de protection type overlay : **achat d'un put spread sur l'Euro Stoxx 50**, roulé à "
-        "échéance. Valorisation Black-Scholes ; la volatilité implicite est approchée par la volatilité "
-        "réalisée 1 mois + une prime de vol."
+        "**Le principe :** une **assurance contre la baisse des actions**. Le fonds achète un *put spread* sur "
+        "l'Euro Stoxx 50 : il est indemnisé si l'indice baisse entre deux niveaux, en échange d'une prime payée d'avance. "
+        "La position est renouvelée à chaque échéance."
     )
     spot_s = levels["^STOXX50E"].dropna()
     estr = fred["ESTR"].reindex(spot_s.index).ffill() / 100
     rv = spot_s.pct_change().rolling(21).std() * np.sqrt(252)
 
-    c = st.columns(6)
-    notional = c[0].number_input("Notionnel couvert (M€)", 50, 5000, 1000, 50)
-    k_long = c[1].slider("Strike put acheté", 80, 100, 95, 1, format="%d %%") / 100
-    kl = int(round(k_long * 100))
-    k_short = c[2].slider("Strike put vendu", 50, kl - 1, min(85, kl - 1), 1, format="%d %%") / 100
-    mat_m = c[3].selectbox("Maturité", [1, 3, 6, 12], index=1, format_func=lambda x: f"{x} mois")
-    vol_prem = c[4].slider("Prime de vol (pts)", 0, 10, 3) / 100
-    q = c[5].slider("Rendement dividende", 0.0, 5.0, 3.0, 0.5, format="%.1f %%") / 100
+    with st.expander("⚙️ Paramètres de la stratégie", expanded=False):
+        c = st.columns(6)
+        notional = c[0].number_input("Montant protégé (M€)", 50, 5000, 1000, 50)
+        k_long = c[1].slider("Protection à partir de", 80, 100, 95, 1, format="%d %%",
+                             help="Strike du put acheté, en % du niveau de l'indice à l'ouverture.") / 100
+        kl = int(round(k_long * 100))
+        k_short = c[2].slider("Protection jusqu'à", 50, kl - 1, min(85, kl - 1), 1, format="%d %%",
+                              help="Strike du put vendu : en dessous, la protection ne joue plus.") / 100
+        mat_m = c[3].selectbox("Durée", [1, 3, 6, 12], index=1, format_func=lambda x: f"{x} mois")
+        vol_prem = c[4].slider("Prime de vol (pts)", 0, 10, 3,
+                               help="Écart supposé entre volatilité implicite et volatilité réalisée 1 mois.") / 100
+        q = c[5].slider("Rendement dividende", 0.0, 5.0, 3.0, 0.5, format="%.1f %%") / 100
 
     # --- backtest hebdomadaire sur 1 an ----------------------------------------------
     weekly = spot_s.resample("W-FRI").last().loc[lambda s: s.index > last - pd.DateOffset(years=1)]
-    rows, pos, cum_pnl = [], None, 0.0
+    rows, pos, cum_pnl, premiums = [], None, 0.0, 0.0
     for dte in weekly.index:
         S = spot_s.loc[:dte].iloc[-1]
         sig = rv.loc[:dte].iloc[-1] + vol_prem
@@ -555,78 +603,141 @@ with tabs[4]:
             payoff = max(pos["K1"] - S, 0) - max(pos["K2"] - S, 0)
             pnl = (payoff - pos["last_mtm"]) * pos["units"]
             cum_pnl += pnl
-            rows.append(dict(Date=dte, Spot=S, Strikes=f"{pos['K1']:.0f}/{pos['K2']:.0f}", **{"Jours restants": 0},
-                             **{"Vol": sig, "Valeur (M€)": payoff * pos["units"] / 1e6, "Delta (M€)": 0.0,
-                                "P&L semaine (M€)": pnl / 1e6, "P&L cumulé (M€)": cum_pnl / 1e6, "Évènement": "Échéance"}))
+            rows.append({"Date": dte, "Euro Stoxx 50": S, "Strikes": f"{pos['K1']:.0f} / {pos['K2']:.0f}",
+                         "Valeur (M€)": payoff * pos["units"] / 1e6, "Delta (M€)": 0.0,
+                         "P&L semaine (M€)": pnl / 1e6, "P&L cumulé (M€)": cum_pnl / 1e6,
+                         "Évènement": "Échéance" + (" (indemnisation)" if payoff > 0 else "")})
             pos = None
-            event = "Roll"
+            event = "Renouvellement"
         if pos is None:
             units = notional * 1e6 / S
-            p0 = A.put_spread(S, k_long * S, k_short * S, mat_m / 12, r_, q, sig)["price"]
+            g0 = A.put_spread(S, k_long * S, k_short * S, mat_m / 12, r_, q, sig)
             pos = dict(K1=k_long * S, K2=k_short * S, expiry=dte + pd.DateOffset(months=mat_m),
-                       units=units, last_mtm=p0)
-            cum_pnl -= 0  # la prime payée est capturée via le MTM initial
-            rows.append(dict(Date=dte, Spot=S, Strikes=f"{pos['K1']:.0f}/{pos['K2']:.0f}",
-                             **{"Jours restants": (pos["expiry"] - dte).days, "Vol": sig,
-                                "Valeur (M€)": p0 * units / 1e6,
-                                "Delta (M€)": A.put_spread(S, pos["K1"], pos["K2"], mat_m / 12, r_, q, sig)["delta"] * units * S / 1e6,
-                                "P&L semaine (M€)": 0.0, "P&L cumulé (M€)": cum_pnl / 1e6,
-                                "Évènement": event or "Ouverture", "Prime (M€)": p0 * units / 1e6}))
+                       units=units, last_mtm=g0["price"])
+            premiums += g0["price"] * units
+            rows.append({"Date": dte, "Euro Stoxx 50": S, "Strikes": f"{pos['K1']:.0f} / {pos['K2']:.0f}",
+                         "Valeur (M€)": g0["price"] * units / 1e6, "Delta (M€)": g0["delta"] * units * S / 1e6,
+                         "P&L semaine (M€)": 0.0, "P&L cumulé (M€)": cum_pnl / 1e6,
+                         "Évènement": f"{event or 'Ouverture'} — prime {g0['price'] * units / 1e6:.1f} M€"})
             continue
         T = max((pos["expiry"] - dte).days, 0) / 365
         g = A.put_spread(S, pos["K1"], pos["K2"], T, r_, q, sig)
         pnl = (g["price"] - pos["last_mtm"]) * pos["units"]
         cum_pnl += pnl
         pos["last_mtm"] = g["price"]
-        rows.append(dict(Date=dte, Spot=S, Strikes=f"{pos['K1']:.0f}/{pos['K2']:.0f}",
-                         **{"Jours restants": (pos["expiry"] - dte).days, "Vol": sig,
-                            "Valeur (M€)": g["price"] * pos["units"] / 1e6,
-                            "Delta (M€)": g["delta"] * pos["units"] * S / 1e6,
-                            "P&L semaine (M€)": pnl / 1e6, "P&L cumulé (M€)": cum_pnl / 1e6, "Évènement": ""}))
+        rows.append({"Date": dte, "Euro Stoxx 50": S, "Strikes": f"{pos['K1']:.0f} / {pos['K2']:.0f}",
+                     "Valeur (M€)": g["price"] * pos["units"] / 1e6, "Delta (M€)": g["delta"] * pos["units"] * S / 1e6,
+                     "P&L semaine (M€)": pnl / 1e6, "P&L cumulé (M€)": cum_pnl / 1e6, "Évènement": ""})
     rep = pd.DataFrame(rows).set_index("Date")
 
-    # --- position courante -----------------------------------------------------------
-    S_now = spot_s.iloc[-1]
+    # --- position courante et prix d'une protection neuve ----------------------------
+    S_now, r_now = spot_s.iloc[-1], estr.iloc[-1]
     T_now = max((pos["expiry"] - spot_s.index[-1]).days, 1) / 365
     sig_now = rv.iloc[-1] + vol_prem
-    g_now = A.put_spread(S_now, pos["K1"], pos["K2"], T_now, estr.iloc[-1], q, sig_now)
+    g_now = A.put_spread(S_now, pos["K1"], pos["K2"], T_now, r_now, q, sig_now)
     u = pos["units"]
-    k = st.columns(6)
-    k[0].metric("Euro Stoxx 50", f"{S_now:,.0f}".replace(",", " "))
-    k[1].metric("Strikes en vie", f"{pos['K1']:.0f}/{pos['K2']:.0f}", f"échéance {pos['expiry']:%d/%m/%Y}", delta_color="off")
-    k[2].metric("Valeur position", f"{g_now['price'] * u / 1e6:.1f} M€", f"{g_now['price'] * u / (notional * 1e6):.2%} du notionnel", delta_color="off")
-    k[3].metric("Delta", f"{g_now['delta'] * u * S_now / 1e6:,.0f} M€", f"{g_now['delta']:.1%} du notionnel", delta_color="off")
-    k[4].metric("Vega (1 pt)", f"{g_now['vega'] * u / 1e6:.2f} M€")
-    k[5].metric("Theta (1 jour)", f"{g_now['theta'] * u / 1e3:,.0f} k€")
+    new = A.put_spread(S_now, k_long * S_now, k_short * S_now, mat_m / 12, r_now, q, sig_now)
+    prem_pct = new["price"] / S_now
+    max_pay = (k_long - k_short) * notional
 
-    left, right = st.columns([3, 2])
+    st.info(
+        f"#### En bref\n"
+        f"Une protection neuve couvrirait **{notional:,.0f} M€** d'actions contre une baisse de l'indice comprise entre "
+        f"**−{(1 - k_long) * 100:.0f} % et −{(1 - k_short) * 100:.0f} %** "
+        f"(niveaux {k_long * S_now:,.0f} et {k_short * S_now:,.0f}). "
+        f"**Coût : {prem_pct * notional:,.1f} M€** pour {mat_m} mois, soit {prem_pct:.2%} du montant protégé "
+        f"(≈ {prem_pct * 12 / mat_m:.1%} par an). **Indemnisation maximale : {max_pay:,.0f} M€** si l'indice finit "
+        f"sous {k_short * S_now:,.0f}.".replace(",", " ")
+    )
+
+    # --- carte « cette semaine » -------------------------------------------------------
+    last_row = rep.iloc[-1]
+    days_left = (pos["expiry"] - spot_s.index[-1]).days
+    cushion = S_now / pos["K1"] - 1
+    st.markdown("##### 🗓️ Cette semaine")
+    k = st.columns(4)
+    k[0].metric("P&L de la semaine", f"{last_row['P&L semaine (M€)']:+.1f} M€",
+                help="Variation de valeur de la protection depuis vendredi dernier.")
+    k[1].metric("P&L cumulé sur 12 mois", f"{last_row['P&L cumulé (M€)']:+.1f} M€",
+                f"primes payées : {premiums / 1e6:.1f} M€", delta_color="off",
+                help="Coût net de l'assurance sur l'année : primes payées moins indemnisations et valeur restante.")
+    k[2].metric("Indice vs seuil de protection", f"{cushion:+.1%}",
+                "la protection joue" if cushion < 0 else "protection pas encore active", delta_color="off",
+                help=f"Écart entre le niveau actuel de l'indice ({S_now:,.0f}) et le strike du put acheté ({pos['K1']:,.0f}).")
+    k[3].metric("Prochain renouvellement", f"{pos['expiry']:%d/%m/%Y}", f"dans {days_left} jours", delta_color="off")
+
+    # --- scénarios de marché ----------------------------------------------------------
+    left, right = st.columns([2, 3])
     with left:
-        grid = np.linspace(0.6 * S_now, 1.2 * S_now, 121)
+        st.markdown("##### Que se passe-t-il si l'indice baisse demain ?")
+        shocks = [-0.20, -0.15, -0.10, -0.05, 0.0, 0.05]
+        scen = []
+        for sh in shocks:
+            v = A.put_spread(S_now * (1 + sh), pos["K1"], pos["K2"], T_now, r_now, q, sig_now)["price"] * u / 1e6
+            gain = v - g_now["price"] * u / 1e6
+            loss = notional * sh
+            scen.append({"Choc": f"{sh:+.0%}", "Actions": loss, "Protection": gain,
+                         "Net": loss + gain, "Compensé": f"{-gain / loss:.0%}" if loss < 0 else "–"})
+        scen = pd.DataFrame(scen).set_index("Choc")
+        st.dataframe(
+            scen.style.format({"Actions": "{:+,.0f}", "Protection": "{:+,.0f}", "Net": "{:+,.0f}"})
+            .map(lambda v: "color: #1a7f37; font-weight: 600" if isinstance(v, float) and v > 0 else "", subset=["Protection"]),
+            width="stretch",
+            column_config={
+                "Actions": st.column_config.Column("Actions (M€)", help="Variation de valeur des actions protégées."),
+                "Protection": st.column_config.Column("Protection (M€)", help="Gain ou perte immédiat du put spread."),
+                "Net": st.column_config.Column("Net (M€)", help="Résultat du portefeuille actions + protection."),
+                "Compensé": st.column_config.Column("Compensé", help="Part de la perte actions absorbée par la protection."),
+            },
+        )
+        st.caption(f"Choc instantané sur {notional:,.0f} M€ d'actions, protection en vie valorisée à volatilité inchangée.".replace(",", " "))
+    with right:
+        grid = np.linspace(0.7 * S_now, 1.15 * S_now, 121)
         at_exp = (np.maximum(pos["K1"] - grid, 0) - np.maximum(pos["K2"] - grid, 0)) * u / 1e6
-        today = A.put_spread(grid, pos["K1"], pos["K2"], T_now, estr.iloc[-1], q, sig_now)["price"] * u / 1e6
+        today = A.put_spread(grid, pos["K1"], pos["K2"], T_now, r_now, q, sig_now)["price"] * u / 1e6
         fig = go.Figure()
-        fig.add_scatter(x=grid, y=at_exp, name="À échéance")
-        fig.add_scatter(x=grid, y=today, name="Aujourd'hui (BS)", line=dict(dash="dash"))
-        fig.add_vline(x=S_now, line_dash="dot", annotation_text="Spot")
-        fig.update_layout(title="Valeur de la protection selon le niveau de l'indice (M€)", height=380,
+        fig.add_vrect(x0=pos["K2"], x1=pos["K1"], fillcolor="#2a9d8f", opacity=0.08, line_width=0,
+                      annotation_text="zone protégée", annotation_position="top left")
+        fig.add_scatter(x=grid, y=at_exp, name="À l'échéance", line=dict(color="#1f5fa8"))
+        fig.add_scatter(x=grid, y=today, name="Aujourd'hui", line=dict(dash="dash", color="#9aa5b1"))
+        fig.add_vline(x=S_now, line_dash="dot", annotation_text="niveau actuel")
+        fig.update_layout(title="Indemnisation selon le niveau de l'indice (M€)", height=360,
                           margin=dict(t=50, b=10), xaxis_title="Euro Stoxx 50", legend=dict(orientation="h", y=-0.2))
         st.plotly_chart(fig, width="stretch")
-    with right:
+
+    # --- reporting hebdomadaire --------------------------------------------------------
+    st.markdown("##### Reporting hebdomadaire")
+    left, right = st.columns([2, 3])
+    with left:
         fig = go.Figure()
-        fig.add_bar(x=rep.index, y=rep["P&L semaine (M€)"], name="P&L semaine")
+        fig.add_bar(x=rep.index, y=rep["P&L semaine (M€)"], name="P&L semaine",
+                    marker_color=np.where(rep["P&L semaine (M€)"] >= 0, "#2a9d8f", "#e76f51"))
         fig.add_scatter(x=rep.index, y=rep["P&L cumulé (M€)"], name="P&L cumulé", line=dict(color="black"))
-        fig.update_layout(title="P&L de la stratégie sur 12 mois (M€)", height=380, margin=dict(t=50, b=10),
+        fig.update_layout(title="P&L sur 12 mois (M€)", height=330, margin=dict(t=50, b=10),
                           legend=dict(orientation="h", y=-0.2))
         st.plotly_chart(fig, width="stretch")
+    with right:
+        n_show = st.radio("Afficher", ["8 dernières semaines", "12 mois"], horizontal=True, label_visibility="collapsed")
+        view = rep.sort_index(ascending=False)
+        view = view.head(8) if n_show.startswith("8") else view
+        view = view.copy()
+        view.index = view.index.strftime("%d/%m/%Y")
+        st.dataframe(
+            view.style.format({"Euro Stoxx 50": "{:,.0f}", "Valeur (M€)": "{:.1f}", "Delta (M€)": "{:+.0f}",
+                               "P&L semaine (M€)": "{:+.1f}", "P&L cumulé (M€)": "{:+.1f}"}, na_rep=""),
+            width="stretch", height="auto" if n_show.startswith("8") else 360,
+        )
+        st.download_button("📥 Exporter le reporting (CSV)", rep.to_csv().encode("utf-8-sig"), "reporting_options.csv", "text/csv")
 
-    st.subheader("Reporting hebdomadaire de suivi options")
-    st.dataframe(
-        rep.sort_index(ascending=False).style.format(
-            {"Spot": "{:,.0f}", "Vol": "{:.1%}", "Valeur (M€)": "{:.2f}", "Delta (M€)": "{:.1f}",
-             "P&L semaine (M€)": "{:+.2f}", "P&L cumulé (M€)": "{:+.2f}", "Prime (M€)": "{:.2f}"}, na_rep=""),
-        width="stretch", height=360,
-    )
-    st.download_button("📥 Exporter le reporting (CSV)", rep.to_csv().encode("utf-8-sig"), "reporting_options.csv", "text/csv")
+    with st.expander("🔬 Grecques de la position en vie (pour spécialistes)"):
+        k = st.columns(4)
+        k[0].metric("Delta", f"{g_now['delta'] * u * S_now / 1e6:,.0f} M€", f"{g_now['delta']:.1%} du notionnel", delta_color="off",
+                    help="Exposition actions équivalente de la protection : variation de valeur pour une variation de l'indice.")
+        k[1].metric("Gamma (1 %)", f"{g_now['gamma'] * u * S_now ** 2 / 100 / 1e6:,.1f} M€",
+                    help="Variation du delta pour un mouvement de 1 % de l'indice.")
+        k[2].metric("Vega (1 pt)", f"{g_now['vega'] * u / 1e6:.2f} M€", help="Variation de valeur pour +1 point de volatilité.")
+        k[3].metric("Theta (1 jour)", f"{g_now['theta'] * u / 1e3:,.0f} k€", help="Perte de valeur liée au passage du temps, par jour.")
+        st.caption("Valorisation Black-Scholes ; volatilité implicite approchée par la volatilité réalisée 1 mois + prime de vol.")
 
 # ======================================================================================
 # 6. Méthodologie
