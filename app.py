@@ -40,6 +40,46 @@ def style_metrics(df: pd.DataFrame):
     return df.style.format({k: v for k, v in fmt.items() if k in df.columns}, na_rep="–")
 
 
+# Définitions affichées en infobulle (en-têtes de tableau et indicateurs)
+HELP = {
+    "Verdict": "Le gérant crée-t-il de la valeur une fois ses expositions de marché neutralisées ? "
+               "Basé sur l'alpha factoriel et sa significativité statistique (t-stat).",
+    "Rdt annualisé": "Rendement moyen par an, net de frais, dividendes réinvestis.",
+    "Surperf. annualisée": "Rendement annualisé du fonds moins celui de l'indice. Positif = le fonds bat l'indice.",
+    "Volatilité": "Amplitude des variations du fonds (écart-type annualisé). Plus c'est bas, plus c'est stable.",
+    "Tracking error": "Écart de comportement avec l'indice (écart-type annualisé de la différence de rendement).",
+    "Information ratio": "Surperformance obtenue par unité d'écart à l'indice. > 0,5 = bon ; < 0 = le fonds fait moins bien que l'indice.",
+    "Alpha factoriel": "Rendement que le gérant apporte au-delà de ce qu'expliquent le crédit, les taux et les actions. "
+                       "C'est la vraie valeur ajoutée du gérant.",
+    "Alpha t-stat": "Fiabilité statistique de l'alpha. |t| ≥ 2 : alpha significatif ; sinon il peut relever du hasard.",
+    "Bêta": "Sensibilité au benchmark. 1 = bouge comme l'indice ; < 1 = plus défensif.",
+    "Max drawdown": "Pire baisse subie entre un plus haut et un plus bas sur la période.",
+    "Up capture": "Part des hausses de l'indice captée par le fonds. > 100 % = fait mieux que l'indice quand il monte.",
+    "Down capture": "Part des baisses de l'indice subie par le fonds. < 100 % = protège mieux que l'indice quand il baisse.",
+    "TER": "Frais annuels totaux du fonds (en % de l'encours).",
+    "Encours (Md$)": "Taille du fonds, en milliards.",
+}
+
+
+def short(t: str) -> str:
+    """Nom lisible d'un fonds (ticker en secours)."""
+    return D.FUNDS[t]["short"] if t in D.FUNDS else t
+
+
+def verdict(m) -> tuple[str, str, str]:
+    """(badge, explication, niveau) à partir de l'alpha factoriel et de son t-stat."""
+    a, t = m["Alpha factoriel"], m["Alpha t-stat"]
+    if a > 0 and t >= 2:
+        return "✅ Création de valeur robuste", "alpha positif et statistiquement significatif", "success"
+    if a < 0 and t <= -2:
+        return "❌ Destruction de valeur", "alpha négatif et statistiquement significatif", "error"
+    if abs(a) < 0.0025:
+        return "⚪ Proche de l'indice", "alpha quasi nul : le fonds se comporte comme son marché", "info"
+    if a > 0:
+        return "🟡 Valeur ajoutée non démontrée", "alpha positif mais pas assez régulier pour exclure le hasard", "warning"
+    return "🟠 Pas de valeur ajoutée", "alpha négatif, mais pas de façon statistiquement certaine", "warning"
+
+
 # ======================================================================================
 # Données
 # ======================================================================================
@@ -70,12 +110,22 @@ with st.sidebar:
     bench_label = st.selectbox("Benchmark", list(seg["benchmarks"]))
     bench = seg["benchmarks"][bench_label]
 
-    candidates = [t for t, m in D.FUNDS.items() if m["segment"] == seg_name and t != bench]
+    seg_funds = [t for t, m in D.FUNDS.items() if m["segment"] == seg_name and t != bench]
+    off_style = [t for t in seg_funds if D.FUNDS[t].get("off_style")]
+    include_off = False
+    if off_style:
+        include_off = st.checkbox(
+            "Inclure les fonds hors style",
+            value=False,
+            help="Fonds dont la stratégie ne correspond pas au mandat : "
+            + " ; ".join(f"{short(t)} ({D.FUNDS[t]['off_style']})" for t in off_style),
+        )
+    candidates = [t for t in seg_funds if include_off or t not in off_style]
     selected = st.multiselect(
         "Gérants / fonds candidats",
         candidates,
         default=candidates,
-        format_func=lambda t: f"{t} – {D.FUNDS[t]['name']}",
+        format_func=short,
     )
 
     first = rets[bench].first_valid_index()
@@ -131,7 +181,8 @@ if table.empty:
     st.error("Historique insuffisant sur la période choisie.")
     st.stop()
 
-label = lambda t: f"{t} – {D.FUNDS[t]['name']}" if t in D.FUNDS else bench_label
+label = lambda t: f"{D.FUNDS[t]['name']} ({t})" if t in D.FUNDS else bench_label
+table["Verdict"] = [verdict(table.loc[t])[0] for t in table.index]
 
 st.title(f"Sélection de gérants — {seg_name}")
 st.caption(
@@ -139,10 +190,20 @@ st.caption(
     f"en {seg['currency']}, total return (dividendes réinvestis), nets de frais"
 )
 
-tabs = st.tabs([
-    "🏁 Vue d'ensemble", "🔍 Analyse gérant", "🏆 Scoring appel d'offres",
-    "💱 Overlay change", "🛡️ Overlay options", "📘 Méthodologie",
-])
+with st.expander("ℹ️ À quoi sert cet outil ? — mode d'emploi en 3 étapes", expanded=True):
+    st.markdown(
+        "Cet outil simule la **pré-sélection de gérants lors d'un appel d'offres** : il compare des fonds "
+        "candidats à leur indice de référence et identifie ceux qui **créent réellement de la valeur**, "
+        "c'est-à-dire au-delà de ce que rapportent mécaniquement le crédit, les taux et les actions."
+    )
+    s1, s2, s3 = st.columns(3)
+    s1.markdown("**① Choisir le mandat**  \nDans la barre latérale : segment (HY US, HY Euro, Crédit Euro IG), indice et période.")
+    s2.markdown("**② Comparer les gérants**  \nOnglet *Synthèse* pour la vue globale, onglet *Gérant* pour le diagnostic détaillé d'un fonds.")
+    s3.markdown("**③ Établir la short-list**  \nOnglet *Scoring* : pondérez vos critères, obtenez un classement et exportez-le en Excel.")
+    st.caption("Les onglets *Change* et *Options* illustrent le suivi de l'overlay (couverture EUR/USD, protection actions). "
+               "Survolez les ⓘ et les en-têtes de colonnes pour les définitions.")
+
+tabs = st.tabs(["🏁 Synthèse", "🔍 Gérant", "🏆 Scoring", "💱 Change", "🛡️ Options", "📘 Méthode"])
 
 # ======================================================================================
 # 1. Vue d'ensemble
@@ -150,28 +211,36 @@ tabs = st.tabs([
 with tabs[0]:
     best_ir = table["Information ratio"].idxmax()
     best_alpha = table["Alpha factoriel"].idxmax()
+    n_beat = int((table["Surperf. annualisée"] > 0).sum())
+    n_robust = int(table["Verdict"].str.startswith("✅").sum())
+    st.markdown(
+        f"#### En bref : {n_beat} candidat{'s' if n_beat > 1 else ''} sur {len(table)} "
+        f"bat{'tent' if n_beat > 1 else ''} l'indice, et **{n_robust}** crée{'nt' if n_robust > 1 else ''} "
+        f"de la valeur de façon statistiquement robuste."
+    )
     c = st.columns(4)
-    c[0].metric("Rendement benchmark (ann.)", fmt_pct(A.ann_return(b.dropna())))
-    c[1].metric("Meilleur information ratio", best_ir, f"{table.loc[best_ir, 'Information ratio']:.2f}")
-    c[2].metric("Meilleur alpha factoriel", best_alpha, fmt_pct(table.loc[best_alpha, "Alpha factoriel"]))
-    c[3].metric("Candidats battant l'indice", f"{(table['Surperf. annualisée'] > 0).sum()} / {len(table)}")
+    c[0].metric("Rendement de l'indice (par an)", fmt_pct(A.ann_return(b.dropna())), help="Rendement annualisé du benchmark sur la période.")
+    c[1].metric("Meilleur information ratio", short(best_ir), f"IR {table.loc[best_ir, 'Information ratio']:.2f}", help=HELP["Information ratio"])
+    c[2].metric("Meilleur alpha factoriel", short(best_alpha), fmt_pct(table.loc[best_alpha, "Alpha factoriel"]), help=HELP["Alpha factoriel"])
+    c[3].metric("Candidats battant l'indice", f"{n_beat} / {len(table)}", help=HELP["Surperf. annualisée"])
 
     left, right = st.columns([3, 2])
     with left:
         cum = (1 + R[selected + [bench]].fillna(0)).cumprod() * 100
         fig = go.Figure()
         for i, t in enumerate(selected):
-            fig.add_scatter(x=cum.index, y=cum[t], name=t, line=dict(width=1.5, color=COLORS[i % len(COLORS)]))
+            fig.add_scatter(x=cum.index, y=cum[t], name=short(t), line=dict(width=1.5, color=COLORS[i % len(COLORS)]))
         fig.add_scatter(x=cum.index, y=cum[bench], name="Benchmark", line=dict(width=3, color="black", dash="dot"))
         fig.update_layout(title="Performance cumulée (base 100)", height=430, margin=dict(t=50, b=10), hovermode="x unified")
         st.plotly_chart(fig, width="stretch")
     with right:
-        sc = table.reset_index(names="Fonds")
-        sc["Style"] = sc["Fonds"].map(lambda t: D.FUNDS[t]["style"])
+        sc = table.reset_index(names="Ticker")
+        sc["Fonds"] = sc["Ticker"].map(short)
+        sc["Style"] = sc["Ticker"].map(lambda t: D.FUNDS[t]["style"])
         fig = px.scatter(
-            sc, x="Volatilité", y="Rdt annualisé", color="Style", text="Fonds",
+            sc, x="Volatilité", y="Rdt annualisé", color="Style", hover_name="Fonds",
             size=sc["Encours (Md$)"].fillna(1).clip(lower=0.5), size_max=22,
-            title="Couple rendement / risque",
+            title="Rendement / risque (taille = encours)",
         )
         bv, br = b.std() * np.sqrt(52), A.ann_return(b.dropna())
         fig.add_scatter(x=[bv], y=[br], mode="markers+text", text=["Benchmark"], marker=dict(symbol="x", size=14, color="black"), showlegend=False, textposition="bottom center")
@@ -179,10 +248,32 @@ with tabs[0]:
         fig.update_layout(height=430, margin=dict(t=50, b=10), xaxis_tickformat=".1%", yaxis_tickformat=".1%")
         st.plotly_chart(fig, width="stretch")
 
-    cols = ["Rdt annualisé", "Surperf. annualisée", "Volatilité", "Tracking error", "Information ratio",
-            "Alpha factoriel", "Alpha t-stat", "Bêta", "Max drawdown", "Up capture", "Down capture", "TER", "Encours (Md$)"]
     st.subheader("Tableau comparatif")
-    st.dataframe(style_metrics(table[cols].sort_values("Information ratio", ascending=False)), width="stretch")
+    show_all = st.toggle("Afficher tous les indicateurs", value=False)
+    essentials = ["Verdict", "Surperf. annualisée", "Information ratio", "Alpha factoriel",
+                  "Max drawdown", "Down capture", "TER"]
+    extras = ["Rdt annualisé", "Volatilité", "Tracking error", "Alpha t-stat", "Bêta", "Up capture", "Encours (Md$)"]
+    cols = essentials + (extras if show_all else [])
+    disp = table[cols].sort_values("Alpha factoriel", ascending=False)
+    disp.index = [short(t) for t in disp.index]
+
+    def _color(v, good_if_positive=True, pivot=0.0):
+        if pd.isna(v) or v == pivot:
+            return ""
+        good = (v > pivot) == good_if_positive
+        return "color: #1a7f37; font-weight: 600" if good else "color: #c62828"
+
+    styler = style_metrics(disp)
+    for col_name in ["Surperf. annualisée", "Information ratio", "Alpha factoriel"]:
+        styler = styler.map(_color, subset=[col_name])
+    styler = styler.map(lambda v: _color(v, good_if_positive=False, pivot=1.0), subset=["Down capture"])
+    st.dataframe(
+        styler,
+        width="stretch",
+        column_config={c: st.column_config.Column(c, help=HELP.get(c)) for c in cols},
+    )
+    st.caption("Classement par alpha factoriel. Vert = favorable, rouge = défavorable. "
+               "Survolez les en-têtes pour la définition de chaque indicateur.")
 
 # ======================================================================================
 # 2. Analyse gérant
@@ -192,13 +283,21 @@ with tabs[1]:
     m, fr = table.loc[f], regs[f]
     meta = D.FUNDS[f]
 
+    badge, why, level = verdict(m)
+    getattr(st, level)(
+        f"### {badge}\n**{meta['name']}** : {why} "
+        f"(alpha {fmt_pct(m['Alpha factoriel'])} par an, t = {m['Alpha t-stat']:.1f}). "
+        f"{'Le fonds bat' if m['Surperf. annualisée'] > 0 else 'Le fonds ne bat pas'} son indice "
+        f"({fmt_pct(m['Surperf. annualisée'])} par an, net de frais)."
+    )
+
     c = st.columns(6)
-    c[0].metric("Rdt annualisé", fmt_pct(m["Rdt annualisé"]), fmt_pct(m["Surperf. annualisée"]) + " vs indice")
-    c[1].metric("Tracking error", fmt_pct(m["Tracking error"]))
-    c[2].metric("Information ratio", f"{m['Information ratio']:.2f}")
-    c[3].metric("Alpha factoriel", fmt_pct(m["Alpha factoriel"]), f"t = {m['Alpha t-stat']:.1f}", delta_color="off")
-    c[4].metric("Max drawdown", fmt_pct(m["Max drawdown"]), fmt_pct(A.drawdown(b.dropna()).min()) + " indice", delta_color="off")
-    c[5].metric("Frais (TER)", "–" if pd.isna(m["TER"]) else f"{m['TER']:.2f} %")
+    c[0].metric("Rdt annualisé", fmt_pct(m["Rdt annualisé"]), fmt_pct(m["Surperf. annualisée"]) + " vs indice", help=HELP["Rdt annualisé"])
+    c[1].metric("Tracking error", fmt_pct(m["Tracking error"]), help=HELP["Tracking error"])
+    c[2].metric("Information ratio", f"{m['Information ratio']:.2f}", help=HELP["Information ratio"])
+    c[3].metric("Alpha factoriel", fmt_pct(m["Alpha factoriel"]), f"t = {m['Alpha t-stat']:.1f}", delta_color="off", help=HELP["Alpha factoriel"] + " " + HELP["Alpha t-stat"])
+    c[4].metric("Max drawdown", fmt_pct(m["Max drawdown"]), fmt_pct(A.drawdown(b.dropna()).min()) + " indice", delta_color="off", help=HELP["Max drawdown"])
+    c[5].metric("Frais (TER)", "–" if pd.isna(m["TER"]) else f"{m['TER']:.2f} %", help=HELP["TER"])
 
     # --- commentaire automatique (style note de comité) -----------------------------
     signif = abs(m["Alpha t-stat"]) >= 2
@@ -224,7 +323,7 @@ with tabs[1]:
         pair = R[[f, bench]].dropna()
         cum = (1 + pair).cumprod() * 100
         fig = go.Figure()
-        fig.add_scatter(x=cum.index, y=cum[f], name=f, line=dict(width=2.5))
+        fig.add_scatter(x=cum.index, y=cum[f], name=short(f), line=dict(width=2.5))
         fig.add_scatter(x=cum.index, y=cum[bench], name="Benchmark", line=dict(color="black", dash="dot"))
         rel = cum[f] / cum[bench] * 100
         fig.add_scatter(x=rel.index, y=rel, name="Relatif (dr.)", yaxis="y2", line=dict(color="grey", width=1))
@@ -233,7 +332,7 @@ with tabs[1]:
                           legend=dict(orientation="h", y=-0.15))
         st.plotly_chart(fig, width="stretch")
 
-        dd = pd.DataFrame({f: A.drawdown(pair[f]), "Benchmark": A.drawdown(pair[bench])})
+        dd = pd.DataFrame({short(f): A.drawdown(pair[f]), "Benchmark": A.drawdown(pair[bench])})
         fig = px.area(dd, title="Drawdown", height=300, labels={"value": "", "index": "", "Date": ""})
         fig.update_traces(stackgroup=None, fill="tozeroy")
         fig.update_layout(yaxis_tickformat=".0%", margin=dict(t=50, b=10), legend_title=None)
@@ -303,13 +402,13 @@ with tabs[2]:
         left, right = st.columns([3, 2])
         with left:
             show = scores.copy()
-            show.insert(0, "Fonds", [D.FUNDS[t]["name"] for t in show.index])
+            show.index = [short(t) for t in show.index]
             st.dataframe(
                 show,
                 width="stretch",
                 column_config={
                     "Score global": st.column_config.ProgressColumn("Score global", min_value=0, max_value=100, format="%.0f"),
-                    **{k: st.column_config.NumberColumn(k, format="%.0f") for k in show.columns if k not in ("Fonds", "Score global", "Rang")},
+                    **{k: st.column_config.NumberColumn(k, format="%.0f") for k in show.columns if k not in ("Score global", "Rang")},
                 },
             )
         with right:
@@ -318,14 +417,14 @@ with tabs[2]:
             fig = go.Figure()
             for t in top:
                 fig.add_scatterpolar(r=scores.loc[t, crit].tolist() + [scores.loc[t, crit[0]]],
-                                     theta=crit + [crit[0]], name=t, fill="toself", opacity=0.5)
+                                     theta=crit + [crit[0]], name=short(t), fill="toself", opacity=0.5)
             fig.update_layout(title="Profil des 3 premiers", height=440, polar=dict(radialaxis=dict(range=[0, 100])),
                               margin=dict(t=70, b=40, l=90, r=90), legend=dict(orientation="h", y=-0.15))
             st.plotly_chart(fig, width="stretch")
 
         winner = scores.index[0]
         st.success(
-            f"**Short-list proposée :** {', '.join(scores.index[:3])}. "
+            f"**Short-list proposée :** {', '.join(short(t) for t in scores.index[:3])}. "
             f"En tête : **{label(winner)}** (score {scores.loc[winner, 'Score global']:.0f}/100). "
             "Étape suivante : questionnaire de due diligence et rencontre des équipes de gestion."
         )

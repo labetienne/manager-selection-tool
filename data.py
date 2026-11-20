@@ -21,25 +21,26 @@ START = "2019-10-01"  # début de l'€STR
 # --------------------------------------------------------------------------------------
 FUNDS = {
     # ---- High Yield US (USD) : gérants actifs + ETF passifs -------------------------
-    "VWEHX": dict(name="Vanguard High-Yield Corp (Wellington)", segment="HY US", style="Actif"),
-    "PHIYX": dict(name="PIMCO High Yield Instl", segment="HY US", style="Actif"),
-    "BHYIX": dict(name="BlackRock High Yield Instl", segment="HY US", style="Actif"),
-    "FAGIX": dict(name="Fidelity Capital & Income", segment="HY US", style="Actif"),
-    "OHYFX": dict(name="JPMorgan High Yield I", segment="HY US", style="Actif"),
-    "MWHYX": dict(name="TCW MetWest High Yield M", segment="HY US", style="Actif"),
-    "HYG": dict(name="iShares iBoxx $ HY Corp", segment="HY US", style="Passif"),
-    "JNK": dict(name="SPDR Bloomberg HY Bond", segment="HY US", style="Passif"),
-    "USHY": dict(name="iShares Broad USD HY Corp", segment="HY US", style="Passif"),
-    "ANGL": dict(name="VanEck Fallen Angel HY", segment="HY US", style="Smart beta"),
-    "SJNK": dict(name="SPDR Short Term HY Bond", segment="HY US", style="Smart beta"),
+    "VWEHX": dict(short="Vanguard HY", name="Vanguard High-Yield Corp (Wellington)", segment="HY US", style="Actif"),
+    "PHIYX": dict(short="PIMCO HY", name="PIMCO High Yield Instl", segment="HY US", style="Actif"),
+    "BHYIX": dict(short="BlackRock HY", name="BlackRock High Yield Instl", segment="HY US", style="Actif"),
+    "FAGIX": dict(short="Fidelity Cap. & Inc.", name="Fidelity Capital & Income", segment="HY US", style="Hors style",
+                   off_style="fonds mixte : détient aussi des actions, sa performance ne se compare pas à un indice HY pur"),
+    "OHYFX": dict(short="JPMorgan HY", name="JPMorgan High Yield I", segment="HY US", style="Actif"),
+    "MWHYX": dict(short="TCW MetWest HY", name="TCW MetWest High Yield M", segment="HY US", style="Actif"),
+    "HYG": dict(short="iShares HY (HYG)", name="iShares iBoxx $ HY Corp", segment="HY US", style="Passif"),
+    "JNK": dict(short="SPDR HY (JNK)", name="SPDR Bloomberg HY Bond", segment="HY US", style="Passif"),
+    "USHY": dict(short="iShares Broad HY", name="iShares Broad USD HY Corp", segment="HY US", style="Passif"),
+    "ANGL": dict(short="VanEck Fallen Angels", name="VanEck Fallen Angel HY", segment="HY US", style="Smart beta"),
+    "SJNK": dict(short="SPDR HY court terme", name="SPDR Short Term HY Bond", segment="HY US", style="Smart beta"),
     # ---- High Yield Euro (EUR) ------------------------------------------------------
-    "IHYG.L": dict(name="iShares € High Yield Corp", segment="HY Euro", style="Passif"),
-    "XHYA.DE": dict(name="Xtrackers EUR High Yield Corp", segment="HY Euro", style="Passif"),
-    "SYBJ.DE": dict(name="SPDR Bloomberg Euro HY", segment="HY Euro", style="Passif"),
+    "IHYG.L": dict(short="iShares € HY", name="iShares € High Yield Corp", segment="HY Euro", style="Passif"),
+    "XHYA.DE": dict(short="Xtrackers € HY", name="Xtrackers EUR High Yield Corp", segment="HY Euro", style="Passif"),
+    "SYBJ.DE": dict(short="SPDR € HY", name="SPDR Bloomberg Euro HY", segment="HY Euro", style="Passif"),
     # ---- Crédit Euro Investment Grade (EUR) -----------------------------------------
-    "D5BG.DE": dict(name="Xtrackers EUR Corporate Bond", segment="Crédit Euro IG", style="Passif"),
-    "SYBC.DE": dict(name="SPDR Bloomberg Euro Corporate", segment="Crédit Euro IG", style="Passif"),
-    "EUNS.DE": dict(name="iShares € Corp ex-Fin 1-5 ESG SRI", segment="Crédit Euro IG", style="ESG / court"),
+    "D5BG.DE": dict(short="Xtrackers € Corp", name="Xtrackers EUR Corporate Bond", segment="Crédit Euro IG", style="Passif"),
+    "SYBC.DE": dict(short="SPDR € Corp", name="SPDR Bloomberg Euro Corporate", segment="Crédit Euro IG", style="Passif"),
+    "EUNS.DE": dict(short="iShares € Corp 1-5 ESG", name="iShares € Corp ex-Fin 1-5 ESG SRI", segment="Crédit Euro IG", style="ESG / court"),
 }
 
 # Séries de marché Yahoo (facteurs, change, benchmarks proxy)
