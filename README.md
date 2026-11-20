@@ -15,6 +15,10 @@ Source : *Listes des marchés publics conclus par le FRR* (fondsdereserve.fr, ru
 Les mandats étant dédiés et non publics, chaque gérant est représenté par un **fonds ouvert de la même
 stratégie** (proxy, détaillé dans `data.py`), et comparé à une alternative passive (ETF).
 
+**Candidats externes** (filtre « Univers » dans la barre latérale) : 28 fonds d'autres grands gérants
+(PIMCO, T. Rowe Price, Neuberger Berman, Amundi, Robeco, Pictet, Muzinich, Lazard, Ostrum…), données
+Morningstar via Yahoo Finance, pour situer les gérants du FRR face au marché comme dans un appel d'offres.
+
 ## Fonctionnalités
 | Onglet | Contenu | Lien avec les missions du stage |
 |---|---|---|

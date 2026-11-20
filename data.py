@@ -26,6 +26,7 @@ START = "2019-10-01"  # début de l'€STR
 # avec le mandat réel (contraintes ESG du FRR, frais, taille).
 # Les ETF « Alternative passive » servent de point de comparaison.
 # --------------------------------------------------------------------------------------
+CANDIDATES_SOURCE = "Fonds ouverts des principaux gérants du marché (données Morningstar via Yahoo Finance)"
 FRR_SOURCE = "Listes des marchés publics conclus par le FRR en 2021 et 2023 (fondsdereserve.fr)"
 FUNDS = {
     # ---- High Yield US (USD) — marché 2022FRR01, attribué en février 2023 ------------
@@ -68,6 +69,38 @@ FUNDS = {
     "0P00009D09.F": dict(short="DWS", name="DWS Invest Euro Corporate Bonds FC", segment="Crédit Euro IG", style="Gérant FRR",
                          mandate="Crédit € IG · 2020FRR01 lot 1 · attribué le 27/09/2021", proxy="fonds crédit euro du gérant"),
     "D5BG.DE": dict(short="ETF Xtrackers € Corp", name="Xtrackers EUR Corporate Bond", segment="Crédit Euro IG", style="Alternative passive"),
+    # ---- Candidats potentiels (hors gérants actuels du FRR) — fonds ouverts, données Morningstar via Yahoo
+    # HY US
+    "PHIYX": dict(short="PIMCO", name="PIMCO High Yield Instl", segment="HY US", style="Candidat"),
+    "BHYIX": dict(short="BlackRock", name="BlackRock High Yield Instl", segment="HY US", style="Candidat"),
+    "VWEAX": dict(short="Vanguard (Wellington)", name="Vanguard High-Yield Corporate Adm", segment="HY US", style="Candidat"),
+    "MWHIX": dict(short="TCW MetWest", name="TCW MetWest High Yield Bond I", segment="HY US", style="Candidat"),
+    "PRHIX": dict(short="T. Rowe Price", name="T. Rowe Price High Yield I", segment="HY US", style="Candidat"),
+    "SPHIX": dict(short="Fidelity", name="Fidelity High Income", segment="HY US", style="Candidat"),
+    "LAHYX": dict(short="Lord Abbett", name="Lord Abbett High Yield I", segment="HY US", style="Candidat"),
+    "NHILX": dict(short="Neuberger Berman", name="Neuberger High Income Bond Instl", segment="HY US", style="Candidat"),
+    "MHYIX": dict(short="MacKay Shields", name="NYLI MacKay High Yield Corporate Bond I", segment="HY US", style="Candidat"),
+    "HAHYX": dict(short="Hartford (Wellington)", name="Hartford High Yield Y", segment="HY US", style="Candidat"),
+    "HYIFX": dict(short="Invesco", name="Invesco High Yield R6", segment="HY US", style="Candidat"),
+    # HY Euro
+    "0P00000I0Z.F": dict(short="Amundi", name="Amundi Funds Euro High Yield Bond A EUR C", segment="HY Euro", style="Candidat"),
+    "0P000015HC.F": dict(short="Muzinich", name="Muzinich Europeyield HEUR Acc A", segment="HY Euro", style="Candidat"),
+    "0P0000ZDHO.F": dict(short="Robeco", name="Robeco European High Yield Bonds FH EUR", segment="HY Euro", style="Candidat"),
+    "0P00001A3Z.F": dict(short="Nordea", name="Nordea European High Yield A EUR", segment="HY Euro", style="Candidat"),
+    "0P0000N9KP.F": dict(short="Allianz GI", name="Allianz Euro High Yield Bond AT EUR", segment="HY Euro", style="Candidat"),
+    "0P00000MYT.F": dict(short="Pictet AM", name="Pictet EUR High Yield I", segment="HY Euro", style="Candidat"),
+    "0P0000ABTK.F": dict(short="Eurizon", name="Eurizon Bond High Yield Z EUR Acc", segment="HY Euro", style="Candidat"),
+    "0P0000KNVW.F": dict(short="Lazard Frères Gestion", name="Lazard Euro Corp High Yield PVC EUR", segment="HY Euro", style="Candidat"),
+    # Crédit Euro IG
+    "0P0001HOTN.F": dict(short="Amundi", name="Amundi Funds Euro Corporate Bond Select I2 EUR C", segment="Crédit Euro IG", style="Candidat"),
+    "0P0000237A.F": dict(short="Robeco", name="Robeco Euro Credit Bonds I EUR", segment="Crédit Euro IG", style="Candidat"),
+    "0P00018HP9.F": dict(short="Allianz GI", name="Allianz Euro Credit SRI IT EUR", segment="Crédit Euro IG", style="Candidat"),
+    "0P00001WNK.F": dict(short="Candriam", name="Candriam Bonds Euro Corporate I EUR Cap", segment="Crédit Euro IG", style="Candidat"),
+    "0P00000LKF.F": dict(short="Pictet AM", name="Pictet EUR Corporate Bonds I", segment="Crédit Euro IG", style="Candidat"),
+    "0P00019L2L.F": dict(short="JPMorgan AM", name="JPM Euro Corporate Bond I acc EUR", segment="Crédit Euro IG", style="Candidat"),
+    "0P0000A9GS.F": dict(short="PIMCO", name="PIMCO GIS Euro Credit Instl EUR Acc", segment="Crédit Euro IG", style="Candidat"),
+    "0P0000VDEG.F": dict(short="Eurizon", name="Eurizon Bond Corporate EUR Z Acc", segment="Crédit Euro IG", style="Candidat"),
+    "0P0000SGIP.F": dict(short="Ostrum AM", name="Ostrum SRI Credit Euro I", segment="Crédit Euro IG", style="Candidat"),
 }
 
 # Séries de marché Yahoo (facteurs, change, benchmarks proxy)

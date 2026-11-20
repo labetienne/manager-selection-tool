@@ -39,7 +39,11 @@ def style_metrics(df: pd.DataFrame):
     fmt = {c: "{:.2%}" for c in df.columns if c in PCT_COLS}
     fmt.update({c: "{:.2f}" for c in ["Sharpe", "Sortino", "Information ratio", "Bêta", "Corrélation", "Alpha t-stat", "R²"] if c in df})
     fmt.update({"TER": "{:.2f} %", "Encours (Md$)": "{:.1f}", "Nb semaines": "{:.0f}", "Score": "{:.0f}"})
-    return df.style.format({k: v for k, v in fmt.items() if k in df.columns}, na_rep="–")
+    df = df.copy()
+    if "TER" in df:  # frais souvent indisponibles : affichage texte pour éviter « None »
+        df["TER"] = df["TER"].map(lambda v: "–" if pd.isna(v) else f"{v:.2f} %")
+    num = [c for c in df.columns if pd.api.types.is_numeric_dtype(df[c])]
+    return df.style.format({k: v for k, v in fmt.items() if k in num}, na_rep="–")
 
 
 # Définitions affichées en infobulle (en-têtes de tableau et indicateurs)
@@ -66,6 +70,11 @@ HELP = {
 def short(t: str) -> str:
     """Nom lisible d'un fonds (ticker en secours)."""
     return D.FUNDS[t]["short"] if t in D.FUNDS else t
+
+
+def tag(t: str) -> str:
+    """Nom affiché dans les tableaux, avec 🏛️ pour les gérants actuels du FRR."""
+    return ("🏛️ " if D.FUNDS.get(t, {}).get("style") == "Gérant FRR" else "") + short(t)
 
 
 def verdict(m) -> tuple[str, str, str]:
@@ -126,13 +135,21 @@ with st.sidebar:
             help="Fonds dont la stratégie ne correspond pas au mandat : "
             + " ; ".join(f"{short(t)} ({D.FUNDS[t]['off_style']})" for t in off_style),
         )
-    candidates = [t for t in seg_funds if include_off or t not in off_style]
-    selected = st.multiselect(
-        "Gérants / fonds candidats",
-        candidates,
-        default=candidates,
-        format_func=short,
-    )
+    styles = ["Gérant FRR", "Candidat", "Alternative passive"]
+    univ = st.segmented_control(
+        "Univers", styles, selection_mode="multi", default=styles, key=f"univ_{seg_name}",
+        format_func=lambda x: {"Gérant FRR": "🏛️ FRR", "Candidat": "Candidats", "Alternative passive": "Passif"}[x],
+        help="🏛️ FRR : gérants actuels des mandats du FRR. Candidats : autres grands gérants du marché "
+             "(données Morningstar). Passif : ETF de référence.",
+    ) or styles
+    candidates = [t for t in seg_funds if (include_off or t not in off_style) and D.FUNDS[t]["style"] in univ]
+    counts = {s_: sum(D.FUNDS[t]["style"] == s_ for t in candidates) for s_ in styles}
+    with st.expander(f"Affiner la sélection ({len(candidates)} fonds)"):
+        selected = st.multiselect(
+            "Fonds analysés", candidates, default=candidates, key=f"sel_{seg_name}_{'_'.join(univ)}",
+            format_func=lambda t: ("🏛️ " if D.FUNDS[t]["style"] == "Gérant FRR" else "") + short(t),
+        )
+    st.caption(f"{counts['Gérant FRR']} gérants FRR · {counts['Candidat']} candidats · {counts['Alternative passive']} passifs")
 
     first = rets[bench].first_valid_index()
     last = rets.index.max()
@@ -235,22 +252,45 @@ with tabs[0]:
     n_beat = int((table["Surperf. annualisée"] > 0).sum())
     n_robust = int(table["Verdict"].str.startswith("✅").sum())
     st.markdown(
-        f"#### En bref : {n_beat} candidat{'s' if n_beat > 1 else ''} sur {len(table)} "
+        f"#### En bref : {n_beat} fonds sur {len(table)} "
         f"bat{'tent' if n_beat > 1 else ''} l'indice, et **{n_robust}** crée{'nt' if n_robust > 1 else ''} "
         f"de la valeur de façon statistiquement robuste."
     )
+    ranked = table["Alpha factoriel"].rank(ascending=False, method="min").astype(int)
+    frr_in = [t for t in table.index if D.FUNDS[t]["style"] == "Gérant FRR"]
+    cand_in = [t for t in table.index if D.FUNDS[t]["style"] == "Candidat"]
+    if frr_in and cand_in:
+        best_frr = min(frr_in, key=lambda t: ranked[t])
+        better = [t for t in cand_in if ranked[t] < ranked[best_frr]]
+        st.markdown(
+            f"🏛️ Meilleur gérant actuel du FRR : **{short(best_frr)}**, {'1ᵉʳ' if ranked[best_frr] == 1 else str(ranked[best_frr]) + 'ᵉ'} sur {len(table)} par alpha factoriel. "
+            + (f"{len(better)} candidat{'s' if len(better) > 1 else ''} externe{'s' if len(better) > 1 else ''} font mieux : "
+               + ", ".join(short(t) for t in sorted(better, key=lambda t: ranked[t])[:4]) + ("…" if len(better) > 4 else "") + "."
+               if better else "Aucun candidat externe ne fait mieux.")
+        )
     c = st.columns(4)
     c[0].metric("Rendement de l'indice (par an)", fmt_pct(A.ann_return(b.dropna())), help="Rendement annualisé du benchmark sur la période.")
     c[1].metric("Meilleur information ratio", short(best_ir), f"IR {table.loc[best_ir, 'Information ratio']:.2f}", help=HELP["Information ratio"])
     c[2].metric("Meilleur alpha factoriel", short(best_alpha), fmt_pct(table.loc[best_alpha, "Alpha factoriel"]), help=HELP["Alpha factoriel"])
-    c[3].metric("Candidats battant l'indice", f"{n_beat} / {len(table)}", help=HELP["Surperf. annualisée"])
+    c[3].metric("Fonds battant l'indice", f"{n_beat} / {len(table)}", help=HELP["Surperf. annualisée"])
 
     left, right = st.columns([3, 2])
     with left:
         cum = (1 + R[selected + [bench]].fillna(0)).cumprod() * 100
         fig = go.Figure()
-        for i, t in enumerate(selected):
-            fig.add_scatter(x=cum.index, y=cum[t], name=short(t), line=dict(width=1.5, color=COLORS[i % len(COLORS)]))
+        shown_cand = False
+        frr_i = 0
+        for t in selected:
+            stl = D.FUNDS[t]["style"]
+            if stl == "Candidat":
+                fig.add_scatter(x=cum.index, y=cum[t], name="Candidats", legendgroup="cand", showlegend=not shown_cand,
+                                hovertemplate=f"{short(t)} : %{{y:.1f}}<extra></extra>", line=dict(width=1, color="#c4c9d0"))
+                shown_cand = True
+            elif stl == "Alternative passive":
+                fig.add_scatter(x=cum.index, y=cum[t], name=short(t), line=dict(width=1.5, color="#7a8794", dash="dash"))
+            else:
+                fig.add_scatter(x=cum.index, y=cum[t], name="🏛️ " + short(t), line=dict(width=2, color=COLORS[frr_i % len(COLORS)]))
+                frr_i += 1
         fig.add_scatter(x=cum.index, y=cum[bench], name="Benchmark", line=dict(width=3, color="black", dash="dot"))
         fig.update_layout(title="Performance cumulée (base 100)", height=430, margin=dict(t=50, b=10), hovermode="x unified")
         st.plotly_chart(fig, width="stretch")
@@ -276,7 +316,7 @@ with tabs[0]:
     extras = ["Rdt annualisé", "Volatilité", "Tracking error", "Alpha t-stat", "Bêta", "Up capture", "Encours (Md$)"]
     cols = essentials + (extras if show_all else [])
     disp = table[cols].sort_values("Alpha factoriel", ascending=False)
-    disp.index = [short(t) for t in disp.index]
+    disp.index = [tag(t) for t in disp.index]
 
     def _color(v, good_if_positive=True, pivot=0.0):
         if pd.isna(v) or v == pivot:
@@ -511,7 +551,7 @@ with tabs[2]:
         for i, t in enumerate(scores.index[:3]):
             good, bad = strengths(t)
             with pod[i].container(border=True):
-                st.markdown(f"### {medals[i]} {short(t)}")
+                st.markdown(f"### {medals[i]} {tag(t)}")
                 st.caption(f"{D.FUNDS[t]['name']} · {D.FUNDS[t]['style']} · {table.loc[t, 'Verdict']}")
                 st.progress(int(round(scores.loc[t, "Score global"])), text=f"Score {scores.loc[t, 'Score global']:.0f} / 100")
                 st.markdown(
@@ -529,7 +569,7 @@ with tabs[2]:
                                  "Valeurs réelles : les indicateurs bruts.")
             if mode.startswith("Notes"):
                 show = scores.copy()
-                show.index = [short(t) for t in show.index]
+                show.index = [tag(t) for t in show.index]
                 st.dataframe(
                     show, width="stretch",
                     column_config={
@@ -541,7 +581,7 @@ with tabs[2]:
             else:
                 raw = elig_table.loc[scores.index, list(A.CRITERIA)].copy()
                 raw.insert(0, "Score", scores["Score global"].round(0))
-                raw.index = [short(t) for t in raw.index]
+                raw.index = [tag(t) for t in raw.index]
                 st.dataframe(style_metrics(raw.astype(float)), width="stretch",
                              column_config={c: st.column_config.Column(c, help=HELP.get(c)) for c in raw.columns})
         with right:
@@ -567,7 +607,7 @@ with tabs[2]:
              "choix robuste." if stable else
              "⚠️ Aucun candidat n'est dans le top 3 pour tous les profils : le classement dépend fortement des pondérations.")
         )
-        robust.index = [short(t) for t in robust.index]
+        robust.index = [tag(t) for t in robust.index]
         st.dataframe(
             robust.style.map(lambda v: "background-color: #e6f4ea; font-weight: 600" if isinstance(v, (int, np.integer)) and v <= 3 else "",
                              subset=list(A.PROFILES)),
@@ -881,6 +921,8 @@ Crédit Euro et High Yield US, appliqué aux **gérants actuels du FRR**.
 - **Fonds proxies** : pour chaque gérant, un fonds ouvert de la même stratégie (parts de capitalisation ou
   ajustées des coupons, Yahoo Finance / Morningstar) → rendements *total return* nets de frais.
   Historique disponible depuis mars 2022 pour les fonds UCITS européens. Frais non disponibles pour la plupart d'entre eux.
+- **Candidats externes** : 28 fonds de grands gérants (PIMCO, T. Rowe Price, Amundi, Robeco, Pictet, Muzinich…),
+  parts institutionnelles ou de capitalisation, sélectionnés pour leur corrélation à l'indice (0,80 à 0,98).
 - **Benchmarks** : indices ICE BofA US / Euro High Yield Total Return (FRED, ~3 ans d'historique gratuit)
   ou ETF proxy pour un historique plus long.
 - **Facteurs** : spreads OAS ICE BofA HY (FRED), ETF d'emprunts d'État (IEF / iShares Core € Govt),
@@ -899,6 +941,8 @@ Crédit Euro et High Yield US, appliqué aux **gérants actuels du FRR**.
 ### Limites (à garder en tête)
 - Les **fonds proxies ne sont pas les mandats du FRR** : contraintes ESG, frais négociés et taille diffèrent.
   Certains proxies sont imparfaits (AllianceBernstein, BFT IM, Degroof Petercam), voir l'onglet Gérant.
+- **Candidats** : échantillon de grands gérants du marché (fonds ouverts, données Morningstar via Yahoo),
+  non exhaustif ; un vrai appel d'offres porterait sur les sociétés ayant candidaté.
 - **Biais du survivant** : l'univers ne contient que des fonds encore existants.
 - 3 ans d'historique hebdomadaire = ~156 points : les alphas sont rarement significatifs → la statistique
   ne suffit pas, d'où l'importance de la **due diligence qualitative** (process, équipe, risques, ESG).
