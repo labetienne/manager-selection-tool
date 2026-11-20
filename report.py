@@ -71,12 +71,12 @@ def build_fiche(
 
     # --- En-tête -------------------------------------------------------------------
     fig.text(L, 0.965, "FICHE GÉRANT", fontsize=8, color=MUTED, weight="bold")
-    fig.text(R, 0.965, f"Appel d'offres {seg_name}", fontsize=8, color=MUTED, ha="right")
-    fig.text(L, 0.938, meta["name"], fontsize=17, color=INK, weight="bold")
+    fig.text(R, 0.965, meta.get("mandate", f"Segment {seg_name}"), fontsize=8, color=MUTED, ha="right")
+    fig.text(L, 0.938, meta.get("short", meta["name"]), fontsize=17, color=INK, weight="bold")
     fig.text(
         L, 0.918,
-        f"{ticker}  ·  {meta['style']}  ·  benchmark : {bench_label}  ·  "
-        f"{pair.index[0]:%d/%m/%Y} → {pair.index[-1]:%d/%m/%Y}  ·  {currency}, net de frais",
+        f"{meta['name']} ({ticker})  ·  benchmark : {bench_label}  ·  "
+        f"{pair.index[0]:%d/%m/%Y} → {pair.index[-1]:%d/%m/%Y}  ·  {currency}",
         fontsize=7.5, color=MUTED,
     )
 

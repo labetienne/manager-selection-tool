@@ -17,30 +17,57 @@ CACHE_FILE = os.path.join(CACHE_DIR, "cache.pkl")
 START = "2019-10-01"  # début de l'€STR
 
 # --------------------------------------------------------------------------------------
-# Univers : les fonds jouent le rôle de "gérants candidats" dans un appel d'offres.
+# Univers : les GÉRANTS DU FRR sur les segments concernés par les appels d'offres 2027.
+#
+# Source : « Listes des marchés publics conclus par le FRR » (fondsdereserve.fr, rubrique
+# Publications), marchés 2020FRR01 (crédit euro, attribués en 2021) et 2022FRR01 (HY US,
+# attribués en février 2023). Les mandats sont dédiés et non publics : chaque gérant est
+# représenté par un FONDS OUVERT de la même stratégie (proxy), d'où les écarts possibles
+# avec le mandat réel (contraintes ESG du FRR, frais, taille).
+# Les ETF « Alternative passive » servent de point de comparaison.
 # --------------------------------------------------------------------------------------
+FRR_SOURCE = "Listes des marchés publics conclus par le FRR en 2021 et 2023 (fondsdereserve.fr)"
 FUNDS = {
-    # ---- High Yield US (USD) : gérants actifs + ETF passifs -------------------------
-    "VWEHX": dict(short="Vanguard HY", name="Vanguard High-Yield Corp (Wellington)", segment="HY US", style="Actif"),
-    "PHIYX": dict(short="PIMCO HY", name="PIMCO High Yield Instl", segment="HY US", style="Actif"),
-    "BHYIX": dict(short="BlackRock HY", name="BlackRock High Yield Instl", segment="HY US", style="Actif"),
-    "FAGIX": dict(short="Fidelity Cap. & Inc.", name="Fidelity Capital & Income", segment="HY US", style="Hors style",
-                   off_style="fonds mixte : détient aussi des actions, sa performance ne se compare pas à un indice HY pur"),
-    "OHYFX": dict(short="JPMorgan HY", name="JPMorgan High Yield I", segment="HY US", style="Actif"),
-    "MWHYX": dict(short="TCW MetWest HY", name="TCW MetWest High Yield M", segment="HY US", style="Actif"),
-    "HYG": dict(short="iShares HY (HYG)", name="iShares iBoxx $ HY Corp", segment="HY US", style="Passif"),
-    "JNK": dict(short="SPDR HY (JNK)", name="SPDR Bloomberg HY Bond", segment="HY US", style="Passif"),
-    "USHY": dict(short="iShares Broad HY", name="iShares Broad USD HY Corp", segment="HY US", style="Passif"),
-    "ANGL": dict(short="VanEck Fallen Angels", name="VanEck Fallen Angel HY", segment="HY US", style="Smart beta"),
-    "SJNK": dict(short="SPDR HY court terme", name="SPDR Short Term HY Bond", segment="HY US", style="Smart beta"),
-    # ---- High Yield Euro (EUR) ------------------------------------------------------
-    "IHYG.L": dict(short="iShares € HY", name="iShares € High Yield Corp", segment="HY Euro", style="Passif"),
-    "XHYA.DE": dict(short="Xtrackers € HY", name="Xtrackers EUR High Yield Corp", segment="HY Euro", style="Passif"),
-    "SYBJ.DE": dict(short="SPDR € HY", name="SPDR Bloomberg Euro HY", segment="HY Euro", style="Passif"),
-    # ---- Crédit Euro Investment Grade (EUR) -----------------------------------------
-    "D5BG.DE": dict(short="Xtrackers € Corp", name="Xtrackers EUR Corporate Bond", segment="Crédit Euro IG", style="Passif"),
-    "SYBC.DE": dict(short="SPDR € Corp", name="SPDR Bloomberg Euro Corporate", segment="Crédit Euro IG", style="Passif"),
-    "EUNS.DE": dict(short="iShares € Corp 1-5 ESG", name="iShares € Corp ex-Fin 1-5 ESG SRI", segment="Crédit Euro IG", style="ESG / court"),
+    # ---- High Yield US (USD) — marché 2022FRR01, attribué en février 2023 ------------
+    "OHYFX": dict(short="JPMorgan AM", name="JPMorgan High Yield I", segment="HY US", style="Gérant FRR",
+                  mandate="HY US · 2022FRR01 · attribué le 20/02/2023", proxy="fonds HY US phare du gérant"),
+    "0P0000JSAN": dict(short="Nomura AM", name="Nomura Funds US High Yield Bond I USD", segment="HY US", style="Gérant FRR",
+                       mandate="HY US · 2022FRR01 · attribué le 20/02/2023", proxy="fonds UCITS HY US du gérant"),
+    "AGDYX": dict(short="AllianceBernstein", name="AB High Income Advisor", segment="HY US", style="Gérant FRR",
+                  mandate="HY US · 2022FRR01 · attribué le 21/02/2023",
+                  proxy="proxy imparfait : stratégie high income incluant du HY mondial et de la dette émergente"),
+    "TYHYX": dict(short="BFT IM (Amundi)", name="Victory Pioneer High Yield Y", segment="HY US", style="Gérant FRR",
+                  mandate="HY US · 2022FRR01 · attribué le 20/02/2023",
+                  proxy="proxy imparfait : BFT IM délègue à un sous-gérant non publié ; fonds HY US de l'ex-Amundi US (Pioneer)"),
+    "HYG": dict(short="ETF iShares HY", name="iShares iBoxx $ HY Corp", segment="HY US", style="Alternative passive"),
+    "USHY": dict(short="ETF iShares Broad HY", name="iShares Broad USD HY Corp", segment="HY US", style="Alternative passive"),
+    # ---- High Yield Euro (EUR) — marché 2020FRR01 lot 2, attribué en 2021 ------------
+    "0P00016H0K.F": dict(short="BlackRock", name="BGF European High Yield Bond A2", segment="HY Euro", style="Gérant FRR",
+                         mandate="HY Euro · 2020FRR01 lot 2 · attribué le 29/09/2021", proxy="fonds HY européen du gérant"),
+    "0P00018KKM.F": dict(short="Candriam", name="Candriam Bonds Euro High Yield S", segment="HY Euro", style="Gérant FRR",
+                         mandate="HY Euro · 2020FRR01 lot 2 · attribué le 27/09/2021", proxy="fonds HY euro du gérant"),
+    "0P0000WLB3.F": dict(short="DWS", name="DWS Invest Euro High Yield Corporates LD", segment="HY Euro", style="Gérant FRR",
+                         mandate="HY Euro · 2020FRR01 lot 2 · attribué le 27/09/2021", proxy="fonds HY euro du gérant"),
+    "0P0000ZNJQ.F": dict(short="Degroof Petercam", name="DPAM L Bonds Higher Yield W", segment="HY Euro", style="Gérant FRR",
+                         mandate="HY Euro · 2020FRR01 lot 2 · attribué le 29/09/2021",
+                         proxy="proxy imparfait : stratégie haut rendement plus large que le HY euro"),
+    "0P0001E1E1.F": dict(short="Columbia Threadneedle", name="CT (Lux) European High Yield Bond IE", segment="HY Euro", style="Gérant FRR",
+                         mandate="HY Euro · 2020FRR01 lot 2 · attribué le 30/09/2021", proxy="fonds HY européen du gérant"),
+    "IHYG.L": dict(short="ETF iShares € HY", name="iShares € High Yield Corp", segment="HY Euro", style="Alternative passive"),
+    # ---- Crédit Euro Investment Grade (EUR) — marché 2020FRR01 lot 1, attribué en 2021
+    "0P00001RX7.F": dict(short="AXA IM (BNP PAM)", name="AXA WF Euro Credit Plus I", segment="Crédit Euro IG", style="Gérant FRR",
+                         mandate="Crédit € IG · 2020FRR01 lot 1 · attribué le 29/09/2021 (AXA IM, devenu BNP Paribas AM Europe)",
+                         proxy="fonds crédit euro du gérant"),
+    "0P0001DFO1.F": dict(short="M&G (via BFT)", name="M&G (Lux) Euro Corporate Bond C", segment="Crédit Euro IG", style="Gérant FRR",
+                         mandate="Crédit € IG · 2020FRR01 lot 1 · attribué le 28/10/2021 (BFT IM – M&G)", proxy="fonds crédit euro du sous-gérant"),
+    "0P00000ECM.F": dict(short="Union Inv. (via BFT)", name="UniEuroRenta Corporates A", segment="Crédit Euro IG", style="Gérant FRR",
+                         mandate="Crédit € IG · 2020FRR01 lot 1 · attribué le 29/09/2021 (BFT IM – Union Investment)",
+                         proxy="fonds crédit euro du sous-gérant"),
+    "0P00000S3H.F": dict(short="BlackRock", name="BGF Euro Corporate Bond A2", segment="Crédit Euro IG", style="Gérant FRR",
+                         mandate="Crédit € IG · 2020FRR01 lot 1 · attribué le 29/09/2021", proxy="fonds crédit euro du gérant"),
+    "0P00009D09.F": dict(short="DWS", name="DWS Invest Euro Corporate Bonds FC", segment="Crédit Euro IG", style="Gérant FRR",
+                         mandate="Crédit € IG · 2020FRR01 lot 1 · attribué le 27/09/2021", proxy="fonds crédit euro du gérant"),
+    "D5BG.DE": dict(short="ETF Xtrackers € Corp", name="Xtrackers EUR Corporate Bond", segment="Crédit Euro IG", style="Alternative passive"),
 }
 
 # Séries de marché Yahoo (facteurs, change, benchmarks proxy)

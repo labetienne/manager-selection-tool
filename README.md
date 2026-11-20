@@ -3,6 +3,18 @@
 Prototype d'outil d'aide à la **sélection et au suivi de gérants délégués**, construit en préparation
 du stage Gestion Déléguée du FRR (appels d'offres 2027 : mandats Crédit Euro et High Yield US).
 
+## Univers : les gérants actuels du FRR
+Source : *Listes des marchés publics conclus par le FRR* (fondsdereserve.fr, rubrique Publications).
+
+| Segment | Marché | Gérants attributaires |
+|---|---|---|
+| High Yield US | 2022FRR01 (février 2023) | BFT IM, JPMorgan AM, Nomura AM, AllianceBernstein |
+| Crédit € haut rendement | 2020FRR01 lot 2 (2021) | BlackRock, Candriam, Degroof Petercam, DWS, Columbia Threadneedle |
+| Crédit € investment grade | 2020FRR01 lot 1 (2021) | AXA IM (BNP Paribas AM), BFT IM – M&G, BFT IM – Union Investment, BlackRock, DWS |
+
+Les mandats étant dédiés et non publics, chaque gérant est représenté par un **fonds ouvert de la même
+stratégie** (proxy, détaillé dans `data.py`), et comparé à une alternative passive (ETF).
+
 ## Fonctionnalités
 | Onglet | Contenu | Lien avec les missions du stage |
 |---|---|---|

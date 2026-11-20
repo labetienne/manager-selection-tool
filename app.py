@@ -139,6 +139,7 @@ with st.sidebar:
         st.caption("ℹ️ Les indices ICE BofA ne sont diffusés gratuitement par FRED que sur ~3 ans.")
 
     st.divider()
+    st.caption(f"Gérants : {D.FRR_SOURCE}.")
     st.caption(f"Données au {data['asof']:%d/%m/%Y %H:%M} (Yahoo Finance, FRED)")
     if st.button("🔄 Rafraîchir les données"):
         st.session_state.refresh += 1
@@ -174,7 +175,7 @@ def segment_table(seg_name, bench, start, selected, refresh_token):
         m["Encours (Md$)"] = aum / 1e9 if pd.notna(aum) else np.nan
         rows[t] = m
         regs[t] = fr
-    return pd.DataFrame(rows).T, regs
+    return pd.DataFrame(rows).T.astype(float), regs
 
 
 table, regs = segment_table(seg_name, bench, start, tuple(selected), st.session_state.refresh)
@@ -193,7 +194,7 @@ def fiche_pdf(f, seg_name, bench, start, refresh_token, badge, why, level, synth
     )
 
 
-label = lambda t: f"{D.FUNDS[t]['name']} ({t})" if t in D.FUNDS else bench_label
+label = lambda t: f"{D.FUNDS[t]['short']} — {D.FUNDS[t]['name']}" if t in D.FUNDS else bench_label
 table["Verdict"] = [verdict(table.loc[t])[0] for t in table.index]
 
 st.title(f"Sélection de gérants — {seg_name}")
@@ -204,9 +205,12 @@ st.caption(
 
 with st.expander("ℹ️ À quoi sert cet outil ? — mode d'emploi en 3 étapes", expanded=True):
     st.markdown(
-        "Cet outil simule la **pré-sélection de gérants lors d'un appel d'offres** : il compare des fonds "
-        "candidats à leur indice de référence et identifie ceux qui **créent réellement de la valeur**, "
-        "c'est-à-dire au-delà de ce que rapportent mécaniquement le crédit, les taux et les actions."
+        "Cet outil évalue **les gérants actuels du FRR** sur les segments Crédit Euro (IG et haut rendement) "
+        "et High Yield US, en vue des appels d'offres 2027. Il les compare à leur indice et à une alternative "
+        "passive (ETF), et identifie ceux qui **créent réellement de la valeur**, c'est-à-dire au-delà de ce "
+        "que rapportent mécaniquement le crédit, les taux et les actions.  \n"
+        "*Les mandats du FRR étant dédiés et non publics, chaque gérant est représenté par un fonds ouvert "
+        "de la même stratégie (proxy).*"
     )
     s1, s2, s3 = st.columns(3)
     s1.markdown("**① Choisir le mandat**  \nDans la barre latérale : segment (HY US, HY Euro, Crédit Euro IG), indice et période.")
@@ -297,11 +301,15 @@ with tabs[1]:
 
     badge, why, level = verdict(m)
     getattr(st, level)(
-        f"### {badge}\n**{meta['name']}** : {why} "
+        f"### {badge}\n**{meta['short']}** ({meta['name']}) : {why} "
         f"(alpha {fmt_pct(m['Alpha factoriel'])} par an, t = {m['Alpha t-stat']:.1f}). "
         f"{'Le fonds bat' if m['Surperf. annualisée'] > 0 else 'Le fonds ne bat pas'} son indice "
         f"({fmt_pct(m['Surperf. annualisée'])} par an, net de frais)."
     )
+    if meta.get("mandate"):
+        st.caption(f"🏛️ **Mandat FRR :** {meta['mandate']} · **Fonds utilisé comme proxy :** {meta['name']} ({f}) — {meta['proxy']}.")
+    else:
+        st.caption(f"Alternative passive : {meta['name']} ({f}), sert de point de comparaison.")
 
     c = st.columns(6)
     c[0].metric("Rdt annualisé", fmt_pct(m["Rdt annualisé"]), fmt_pct(m["Surperf. annualisée"]) + " vs indice", help=HELP["Rdt annualisé"])
@@ -328,7 +336,7 @@ with tabs[1]:
         f"({'profil asymétrique favorable' if asym > 0.02 else 'profil défavorable en baisse' if asym < -0.02 else 'profil symétrique'}). "
         f"Le modèle factoriel explique {fr['r2']:.0%} de la variance."
     )
-    st.info(f"**Synthèse — {meta['name']}** ({meta['style'].lower()}). " + synth_body)
+    st.info(f"**Synthèse — {meta['short']}** ({meta['style'].lower()}). " + synth_body)
 
     pdf_bytes = fiche_pdf(f, seg_name, bench, start, st.session_state.refresh, badge, why, level,
                           synth_body.replace("**", ""))
@@ -505,7 +513,7 @@ with tabs[2]:
                     f"**Points forts :** {', '.join(good) if good else '—'}  \n"
                     f"**Point de vigilance :** {', '.join(bad) if bad else 'aucun'}  \n"
                     f"Surperf. {fmt_pct(table.loc[t, 'Surperf. annualisée'])} · alpha {fmt_pct(table.loc[t, 'Alpha factoriel'])} · "
-                    f"frais {table.loc[t, 'TER']:.2f} %"
+                    + (f"frais {table.loc[t, 'TER']:.2f} %" if pd.notna(table.loc[t, "TER"]) else "frais n.d.")
                 )
 
         # --- 4. Classement complet + radar --------------------------------------------------
@@ -860,10 +868,14 @@ with tabs[5]:
         """
 ### Objectif
 Prototype d'outil d'aide à la **sélection et au suivi de gérants délégués**, sur les segments
-Crédit Euro et High Yield US. Les fonds de l'univers jouent le rôle de candidats à un appel d'offres.
+Crédit Euro et High Yield US, appliqué aux **gérants actuels du FRR**.
 
 ### Données
-- **Fonds** : cours ajustés des dividendes (Yahoo Finance) → rendements *total return* nets de frais.
+- **Gérants** : attributaires des marchés 2020FRR01 (crédit euro IG et HY, 2021) et 2022FRR01 (HY US, 2023),
+  d'après les *Listes des marchés publics conclus par le FRR* (fondsdereserve.fr).
+- **Fonds proxies** : pour chaque gérant, un fonds ouvert de la même stratégie (parts de capitalisation ou
+  ajustées des coupons, Yahoo Finance / Morningstar) → rendements *total return* nets de frais.
+  Historique disponible depuis mars 2022 pour les fonds UCITS européens. Frais non disponibles pour la plupart d'entre eux.
 - **Benchmarks** : indices ICE BofA US / Euro High Yield Total Return (FRED, ~3 ans d'historique gratuit)
   ou ETF proxy pour un historique plus long.
 - **Facteurs** : spreads OAS ICE BofA HY (FRED), ETF d'emprunts d'État (IEF / iShares Core € Govt),
@@ -880,7 +892,8 @@ Crédit Euro et High Yield US. Les fonds de l'univers jouent le rôle de candida
 | Up / down capture | rendement moyen du fonds / de l'indice les semaines de hausse / de baisse |
 
 ### Limites (à garder en tête)
-- Des **ETF et fonds ouverts** ne sont pas des mandats dédiés : contraintes, frais et taille diffèrent.
+- Les **fonds proxies ne sont pas les mandats du FRR** : contraintes ESG, frais négociés et taille diffèrent.
+  Certains proxies sont imparfaits (AllianceBernstein, BFT IM, Degroof Petercam), voir l'onglet Gérant.
 - **Biais du survivant** : l'univers ne contient que des fonds encore existants.
 - 3 ans d'historique hebdomadaire = ~156 points : les alphas sont rarement significatifs → la statistique
   ne suffit pas, d'où l'importance de la **due diligence qualitative** (process, équipe, risques, ESG).
