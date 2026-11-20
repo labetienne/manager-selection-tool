@@ -9,6 +9,7 @@ Lancer :  .venv/bin/streamlit run app.py
 from __future__ import annotations
 
 import io
+import os
 
 import numpy as np
 import pandas as pd
@@ -85,8 +86,11 @@ def verdict(m) -> tuple[str, str, str]:
 # Données
 # ======================================================================================
 @st.cache_data(show_spinner="Chargement des données de marché…")
-def get_data(refresh_token: int):
+def get_data(refresh_token: int, cache_version: float):
+    """cache_version = date de modification du fichier cache : un nouveau cache invalide la mémoire."""
     d = D.load_data(refresh=refresh_token > 0)
+    if not set(D.FUNDS).issubset(d["prices"].columns):  # cache d'un ancien univers
+        d = D.load_data(refresh=True)
     levels = D.build_levels(d)
     rets = A.weekly_returns(levels)
     return d, levels, rets
@@ -95,7 +99,8 @@ def get_data(refresh_token: int):
 if "refresh" not in st.session_state:
     st.session_state.refresh = 0
 
-data, levels, rets = get_data(st.session_state.refresh)
+_cache_v = os.path.getmtime(D.CACHE_FILE) if os.path.exists(D.CACHE_FILE) else 0.0
+data, levels, rets = get_data(st.session_state.refresh, _cache_v)
 fred = data["fred"]
 info = data["info"]
 
