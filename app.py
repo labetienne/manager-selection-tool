@@ -37,7 +37,7 @@ def fmt_pct(x, d=2):
 def style_metrics(df: pd.DataFrame):
     fmt = {c: "{:.2%}" for c in df.columns if c in PCT_COLS}
     fmt.update({c: "{:.2f}" for c in ["Sharpe", "Sortino", "Information ratio", "Bêta", "Corrélation", "Alpha t-stat", "R²"] if c in df})
-    fmt.update({"TER": "{:.2f} %", "Encours (Md$)": "{:.1f}", "Nb semaines": "{:.0f}"})
+    fmt.update({"TER": "{:.2f} %", "Encours (Md$)": "{:.1f}", "Nb semaines": "{:.0f}", "Score": "{:.0f}"})
     return df.style.format({k: v for k, v in fmt.items() if k in df.columns}, na_rep="–")
 
 
@@ -409,56 +409,169 @@ with tabs[1]:
 # ======================================================================================
 with tabs[2]:
     st.markdown(
-        "Grille quantitative de pré-sélection : chaque critère est converti en **rang centile** (0–100) "
-        "au sein des candidats, puis pondéré. Elle complète — sans la remplacer — la due diligence "
-        "qualitative (équipe, process, risques opérationnels, ESG)."
+        "**Objectif :** classer les candidats pour établir une **short-list** à rencontrer en due diligence. "
+        "Choisissez un profil de pondération, excluez si besoin les fonds non éligibles, puis lisez le podium."
     )
-    wcols = st.columns(len(A.CRITERIA))
-    weights = {}
-    for col, (key, (lab, higher, w0)) in zip(wcols, A.CRITERIA.items()):
-        weights[key] = col.slider(lab, 0, 50, w0, 5, key=f"w_{key}")
 
-    scores = A.score(table, weights)
-    if "Score global" not in scores:
+    # --- 1. Profil de pondération --------------------------------------------------------
+    def _apply_profile():
+        prof = st.session_state.get("profile")
+        if prof in A.PROFILES:
+            for key, w in A.PROFILES[prof].items():
+                st.session_state[f"w_{key}"] = w
+
+    if "profile" not in st.session_state:
+        st.session_state.profile = "Équilibré"
+        _apply_profile()
+    c1, c2 = st.columns([3, 2])
+    with c1:
+        st.segmented_control(
+            "Profil de pondération", list(A.PROFILES) + ["Personnalisé"], key="profile",
+            on_change=_apply_profile, help=" · ".join(f"{k} : {v}" for k, v in A.PROFILE_HELP.items()),
+        )
+        prof = st.session_state.profile or "Personnalisé"
+        st.caption(A.PROFILE_HELP.get(prof, "Pondérations ajustées à la main."))
+
+    with st.expander("🎚️ Ajuster les pondérations", expanded=prof == "Personnalisé"):
+        wcols = st.columns(len(A.CRITERIA))
+        for col, (key, (lab, higher, w0)) in zip(wcols, A.CRITERIA.items()):
+            col.slider(lab, 0, 50, step=5, key=f"w_{key}",
+                       on_change=lambda: st.session_state.update(profile="Personnalisé"),
+                       help=HELP.get(key, "") + (" (plus c'est haut, mieux c'est)" if higher else " (plus c'est bas, mieux c'est)"))
+    weights = {key: st.session_state[f"w_{key}"] for key in A.CRITERIA}
+    tot = sum(weights.values())
+    with c2:
+        if tot:
+            eff = pd.Series({A.CRITERIA[k][0].split(" (")[0]: v / tot for k, v in weights.items() if v})
+            fig = px.bar(eff.sort_values(), orientation="h", height=170, text_auto=".0%")
+            fig.update_layout(showlegend=False, margin=dict(t=10, b=0, l=0, r=10), xaxis=dict(visible=False),
+                              yaxis_title=None, title=None)
+            fig.update_traces(marker_color="#1f5fa8")
+            st.plotly_chart(fig, width="stretch", config={"displayModeBar": False})
+            if tot != 100:
+                st.caption(f"Total saisi : {tot} → poids ramenés à 100 %.")
+
+    # --- 2. Critères éliminatoires -------------------------------------------------------
+    with st.expander("🚫 Critères éliminatoires (conditions d'éligibilité de l'appel d'offres)"):
+        e = st.columns(3)
+        ter_max = e[0].slider("Frais maximum (TER)", 0.0, 1.0, 1.0, 0.05, format="%.2f %%")
+        dd_floor = e[1].slider("Pire repli toléré", -20.0, 0.0, -20.0, 0.5, format="%.1f %%") / 100
+        aum_min = e[2].slider("Encours minimum (Md)", 0.0, 20.0, 0.0, 0.5,
+                              help="Un fonds trop petit expose à un risque de concentration du FRR dans le fonds.")
+    reasons = {}
+    for t in table.index:
+        r = []
+        if pd.notna(table.loc[t, "TER"]) and table.loc[t, "TER"] > ter_max + 1e-9:
+            r.append(f"frais {table.loc[t, 'TER']:.2f} %")
+        if table.loc[t, "Max drawdown"] < dd_floor:
+            r.append(f"repli {fmt_pct(table.loc[t, 'Max drawdown'], 1)}")
+        if aum_min > 0 and (pd.isna(table.loc[t, "Encours (Md$)"]) or table.loc[t, "Encours (Md$)"] < aum_min):
+            r.append("encours insuffisant")
+        if r:
+            reasons[t] = ", ".join(r)
+    eligible = [t for t in table.index if t not in reasons]
+    if reasons:
+        st.warning("**Exclus :** " + " · ".join(f"{short(t)} ({why_})" for t, why_ in reasons.items()))
+
+    if tot == 0:
         st.warning("Attribuez un poids à au moins un critère.")
+    elif len(eligible) < 2:
+        st.error("Moins de 2 candidats éligibles : assouplissez les critères éliminatoires.")
     else:
+        if len(eligible) < 5:
+            st.info(f"ℹ️ Seulement {len(eligible)} candidats : les notes (rangs centiles) sont peu discriminantes. "
+                    "Lisez plutôt les valeurs réelles.")
+        elig_table = table.loc[eligible]
+        scores = A.score(elig_table, weights)
+        crit = [c for c in scores.columns if c not in ("Score global", "Rang")]
+
+        def strengths(t):
+            row = scores.loc[t, crit].sort_values(ascending=False)
+            good = [k.split(" (")[0] for k, v in row.items() if v >= 60][:2]
+            bad = [k.split(" (")[0] for k, v in row.items() if v <= 40][-1:]
+            return good, bad
+
+        # --- 3. Podium -------------------------------------------------------------------
+        st.markdown("#### 🏆 Short-list proposée")
+        medals = ["🥇", "🥈", "🥉"]
+        pod = st.columns(3)
+        for i, t in enumerate(scores.index[:3]):
+            good, bad = strengths(t)
+            with pod[i].container(border=True):
+                st.markdown(f"### {medals[i]} {short(t)}")
+                st.caption(f"{D.FUNDS[t]['name']} · {D.FUNDS[t]['style']} · {table.loc[t, 'Verdict']}")
+                st.progress(int(round(scores.loc[t, "Score global"])), text=f"Score {scores.loc[t, 'Score global']:.0f} / 100")
+                st.markdown(
+                    f"**Points forts :** {', '.join(good) if good else '—'}  \n"
+                    f"**Point de vigilance :** {', '.join(bad) if bad else 'aucun'}  \n"
+                    f"Surperf. {fmt_pct(table.loc[t, 'Surperf. annualisée'])} · alpha {fmt_pct(table.loc[t, 'Alpha factoriel'])} · "
+                    f"frais {table.loc[t, 'TER']:.2f} %"
+                )
+
+        # --- 4. Classement complet + radar --------------------------------------------------
         left, right = st.columns([3, 2])
         with left:
-            show = scores.copy()
-            show.index = [short(t) for t in show.index]
-            st.dataframe(
-                show,
-                width="stretch",
-                column_config={
-                    "Score global": st.column_config.ProgressColumn("Score global", min_value=0, max_value=100, format="%.0f"),
-                    **{k: st.column_config.NumberColumn(k, format="%.0f") for k in show.columns if k not in ("Score global", "Rang")},
-                },
-            )
+            mode = st.radio("Afficher", ["Notes (0–100)", "Valeurs réelles"], horizontal=True,
+                            help="Notes : rang centile parmi les candidats éligibles (100 = meilleur). "
+                                 "Valeurs réelles : les indicateurs bruts.")
+            if mode.startswith("Notes"):
+                show = scores.copy()
+                show.index = [short(t) for t in show.index]
+                st.dataframe(
+                    show, width="stretch",
+                    column_config={
+                        "Score global": st.column_config.ProgressColumn("Score global", min_value=0, max_value=100, format="%.0f"),
+                        **{k: st.column_config.NumberColumn(k.split(" (")[0], format="%.0f", help=HELP.get(k.split(" (")[0]))
+                           for k in show.columns if k not in ("Score global", "Rang")},
+                    },
+                )
+            else:
+                raw = elig_table.loc[scores.index, list(A.CRITERIA)].copy()
+                raw.insert(0, "Score", scores["Score global"].round(0))
+                raw.index = [short(t) for t in raw.index]
+                st.dataframe(style_metrics(raw.astype(float)), width="stretch",
+                             column_config={c: st.column_config.Column(c, help=HELP.get(c)) for c in raw.columns})
         with right:
-            crit = [c for c in scores.columns if c not in ("Score global", "Rang")]
-            top = scores.index[:3]
             fig = go.Figure()
-            for t in top:
+            for t in scores.index[:3]:
                 fig.add_scatterpolar(r=scores.loc[t, crit].tolist() + [scores.loc[t, crit[0]]],
-                                     theta=crit + [crit[0]], name=short(t), fill="toself", opacity=0.5)
-            fig.update_layout(title="Profil des 3 premiers", height=440, polar=dict(radialaxis=dict(range=[0, 100])),
-                              margin=dict(t=70, b=40, l=90, r=90), legend=dict(orientation="h", y=-0.15))
+                                     theta=[c.split(" (")[0] for c in crit] + [crit[0].split(" (")[0]],
+                                     name=short(t), fill="toself", opacity=0.5)
+            fig.update_layout(title="Profil des 3 premiers (notes 0–100)", height=420,
+                              polar=dict(radialaxis=dict(range=[0, 100])),
+                              margin=dict(t=70, b=40, l=80, r=80), legend=dict(orientation="h", y=-0.15))
             st.plotly_chart(fig, width="stretch")
 
-        winner = scores.index[0]
-        st.success(
-            f"**Short-list proposée :** {', '.join(short(t) for t in scores.index[:3])}. "
-            f"En tête : **{label(winner)}** (score {scores.loc[winner, 'Score global']:.0f}/100). "
-            "Étape suivante : questionnaire de due diligence et rencontre des équipes de gestion."
+        # --- 5. Robustesse : le classement change-t-il selon le profil ? --------------------
+        st.markdown("#### 🔁 Le classement est-il robuste ?")
+        robust = pd.DataFrame({name: A.score(elig_table, w)["Rang"] for name, w in A.PROFILES.items()})
+        robust = robust.loc[scores.index]
+        in_top3 = (robust <= 3).sum(axis=1)
+        robust["Top 3"] = [f"{n} / {len(A.PROFILES)}" for n in in_top3]
+        stable = [short(t) for t in robust.index if in_top3[t] == len(A.PROFILES)]
+        st.caption(
+            ("✅ " + ", ".join(stable) + f" reste{'nt' if len(stable) > 1 else ''} dans le top 3 quel que soit le profil : "
+             "choix robuste." if stable else
+             "⚠️ Aucun candidat n'est dans le top 3 pour tous les profils : le classement dépend fortement des pondérations.")
         )
+        robust.index = [short(t) for t in robust.index]
+        st.dataframe(
+            robust.style.map(lambda v: "background-color: #e6f4ea; font-weight: 600" if isinstance(v, (int, np.integer)) and v <= 3 else "",
+                             subset=list(A.PROFILES)),
+            width="stretch",
+        )
+        st.caption("Rang de chaque candidat selon chaque profil de pondération (surligné = top 3).")
 
         buf = io.BytesIO()
         with pd.ExcelWriter(buf, engine="openpyxl") as xl:
-            scores.to_excel(xl, sheet_name="Scoring")
-            table.to_excel(xl, sheet_name="Indicateurs")
+            scores.rename(index=short).to_excel(xl, sheet_name="Scoring")
+            elig_table.rename(index=short).to_excel(xl, sheet_name="Indicateurs")
+            robust.to_excel(xl, sheet_name="Robustesse")
             pd.Series(weights, name="Poids").to_excel(xl, sheet_name="Pondérations")
+            if reasons:
+                pd.Series({short(t): r for t, r in reasons.items()}, name="Motif").to_excel(xl, sheet_name="Exclus")
             for t in scores.index[:3]:
-                regs[t]["table"].to_excel(xl, sheet_name=f"Facteurs {t}"[:31])
+                regs[t]["table"].to_excel(xl, sheet_name=f"Facteurs {short(t)}"[:31].replace("/", "-"))
         st.download_button("📥 Exporter l'analyse (Excel)", buf.getvalue(),
                            file_name=f"appel_offres_{seg_name.replace(' ', '_')}.xlsx",
                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")

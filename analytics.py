@@ -144,6 +144,24 @@ CRITERIA = {
 }
 
 
+# Profils de pondération prêts à l'emploi (somme = 100)
+PROFILES = {
+    "Équilibré": {k: v[2] for k, v in CRITERIA.items()},
+    "Défensif": {"Information ratio": 10, "Alpha factoriel": 10, "Sharpe": 15, "Max drawdown": 25,
+                 "Down capture": 30, "% semaines surperf.": 5, "TER": 5},
+    "Recherche d'alpha": {"Information ratio": 30, "Alpha factoriel": 40, "Sharpe": 5, "Max drawdown": 5,
+                          "Down capture": 5, "% semaines surperf.": 10, "TER": 5},
+    "Coûts maîtrisés": {"Information ratio": 20, "Alpha factoriel": 15, "Sharpe": 10, "Max drawdown": 10,
+                        "Down capture": 10, "% semaines surperf.": 5, "TER": 30},
+}
+PROFILE_HELP = {
+    "Équilibré": "Pondération par défaut : création de valeur d'abord, risque et frais ensuite.",
+    "Défensif": "Priorité à la protection : faible drawdown et bonne tenue quand le marché baisse.",
+    "Recherche d'alpha": "Priorité à la valeur ajoutée du gérant, au-delà des expositions de marché.",
+    "Coûts maîtrisés": "Les frais pèsent lourd : utile pour un mandat proche de la gestion indicielle.",
+}
+
+
 def score(table: pd.DataFrame, weights: dict) -> pd.DataFrame:
     """Rang centile par critère (0-100) puis moyenne pondérée. Critère ignoré si absent."""
     scores = pd.DataFrame(index=table.index)
