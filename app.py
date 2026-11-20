@@ -18,6 +18,7 @@ import streamlit as st
 
 import analytics as A
 import data as D
+from report import build_fiche
 
 st.set_page_config(page_title="Manager Selection Tool", page_icon="📊", layout="wide")
 
@@ -181,6 +182,17 @@ if table.empty:
     st.error("Historique insuffisant sur la période choisie.")
     st.stop()
 
+@st.cache_data(show_spinner="Génération de la fiche PDF…")
+def fiche_pdf(f, seg_name, bench, start, refresh_token, badge, why, level, synthesis):
+    """Fiche gérant PDF, mise en cache par gérant / segment / période."""
+    return build_fiche(
+        ticker=f, meta=D.FUNDS[f], m=table.loc[f], fr=regs[f], pair=R[[f, bench]],
+        bench_col=bench, bench_label=bench_label, seg_name=seg_name, currency=seg["currency"],
+        rf_ann=A.ann_return(rf.dropna()), badge=badge, why=why, level=level,
+        synthesis=synthesis, asof=data["asof"],
+    )
+
+
 label = lambda t: f"{D.FUNDS[t]['name']} ({t})" if t in D.FUNDS else bench_label
 table["Verdict"] = [verdict(table.loc[t])[0] for t in table.index]
 
@@ -301,21 +313,32 @@ with tabs[1]:
 
     # --- commentaire automatique (style note de comité) -----------------------------
     signif = abs(m["Alpha t-stat"]) >= 2
-    verdict = (
+    signif_txt = (
         "**significatif** statistiquement (|t| ≥ 2)" if signif
         else "**non significatif** statistiquement (|t| < 2) : la surperformance éventuelle peut relever du bruit"
     )
     asym = m["Up capture"] - m["Down capture"]
-    st.info(
-        f"**Synthèse — {meta['name']}** ({meta['style'].lower()}). "
+    synth_body = (
         f"Sur la période, le fonds a délivré **{fmt_pct(m['Rdt annualisé'])}** par an contre "
         f"{fmt_pct(m['Rdt benchmark'])} pour l'indice, soit **{fmt_pct(m['Surperf. annualisée'])}** "
         f"de surperformance nette de frais, pour une tracking error de {fmt_pct(m['Tracking error'])} "
         f"(IR = {m['Information ratio']:.2f}). Après neutralisation des expositions crédit, taux et actions, "
-        f"l'alpha ressort à **{fmt_pct(m['Alpha factoriel'])}** par an, {verdict}. "
+        f"l'alpha ressort à **{fmt_pct(m['Alpha factoriel'])}** par an, {signif_txt}. "
         f"Le gérant capte {fmt_pct(m['Up capture'], 0)} des hausses et {fmt_pct(m['Down capture'], 0)} des baisses du marché "
         f"({'profil asymétrique favorable' if asym > 0.02 else 'profil défavorable en baisse' if asym < -0.02 else 'profil symétrique'}). "
         f"Le modèle factoriel explique {fr['r2']:.0%} de la variance."
+    )
+    st.info(f"**Synthèse — {meta['name']}** ({meta['style'].lower()}). " + synth_body)
+
+    pdf_bytes = fiche_pdf(f, seg_name, bench, start, st.session_state.refresh, badge, why, level,
+                          synth_body.replace("**", ""))
+    st.download_button(
+        "📄 Télécharger la fiche gérant (PDF, 1 page)",
+        pdf_bytes,
+        file_name=f"fiche_{short(f).replace(' ', '_').replace('/', '-')}.pdf",
+        mime="application/pdf",
+        type="primary",
+        help="Verdict, chiffres clés, graphiques, décomposition du rendement et synthèse : prête à imprimer ou à joindre à une note de comité.",
     )
 
     left, right = st.columns(2)
