@@ -22,10 +22,11 @@ import importlib
 import analytics as A
 import data as D
 import report
+import report_frr
 
 # Streamlit Cloud ne recharge pas les modules locaux quand seul leur fichier change :
 # sans ceci, un nouvel app.py peut tourner avec un ancien analytics.py en mémoire.
-for _mod in (A, D, report):
+for _mod in (A, D, report, report_frr):
     importlib.reload(_mod)
 build_fiche = report.build_fiche
 
@@ -93,18 +94,8 @@ def tag(t: str) -> str:
     return ("🏛️ " if D.FUNDS.get(t, {}).get("style") == "Gérant FRR" else "") + short(t)
 
 
-def verdict(m) -> tuple[str, str, str]:
-    """(badge, explication, niveau) à partir de l'alpha factoriel et de son t-stat."""
-    a, t = m["Alpha factoriel"], m["Alpha t-stat"]
-    if a > 0 and t >= 2:
-        return "✅ Création de valeur robuste", "alpha positif et statistiquement significatif", "success"
-    if a < 0 and t <= -2:
-        return "❌ Destruction de valeur", "alpha négatif et statistiquement significatif", "error"
-    if abs(a) < 0.0025:
-        return "⚪ Proche de l'indice", "alpha quasi nul : le fonds se comporte comme son marché", "info"
-    if a > 0:
-        return "🟡 Valeur ajoutée non démontrée", "alpha positif mais pas assez régulier pour exclure le hasard", "warning"
-    return "🟠 Pas de valeur ajoutée", "alpha négatif, mais pas de façon statistiquement certaine", "warning"
+verdict = A.verdict
+
 
 
 # ======================================================================================
@@ -221,6 +212,20 @@ def segment_table(seg_name, bench, start, selected, data_version):
 
 DATA_VERSION = (st.session_state.refresh, _cache_v)  # clé de cache des calculs dérivés
 table, regs = segment_table(seg_name, bench, start, tuple(selected), DATA_VERSION)
+
+
+@st.cache_data(show_spinner="Génération du rapport FRR…")
+def frr_report(data_version):
+    return report_frr.build_frr_report(data, rets, SFDR)
+
+
+st.sidebar.download_button(
+    "📑 Rapport de suivi des gérants FRR (PDF)", frr_report(DATA_VERSION),
+    file_name=f"rapport_suivi_gerants_FRR_{data['asof']:%Y%m%d}.pdf", mime="application/pdf",
+    width="stretch",
+    help="6 pages façon CSG Performance : messages clés, tableau de bord des 14 gérants, contexte de marché, "
+         "une page par segment, évolutions sur 3 mois et points de vigilance.",
+)
 if table.empty:
     st.error("Historique insuffisant sur la période choisie.")
     st.stop()

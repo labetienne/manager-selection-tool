@@ -47,6 +47,7 @@ Bouton « Rafraîchir » dans la barre latérale pour mettre à jour.
 - `analytics.py` — métriques, régression Newey-West, scoring, simulation de couverture, Black-Scholes
 - `app.py` — interface Streamlit
 - `report.py` — fiche gérant PDF (matplotlib)
+- `report_frr.py` — rapport de suivi des 14 gérants FRR (PDF 6 pages, bouton dans la barre latérale)
 - `test_analytics.py` — 7 vérifications : régression, scoring, couverture, Black-Scholes, backtest options
 
 ## Limites

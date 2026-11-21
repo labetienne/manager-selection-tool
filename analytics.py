@@ -324,3 +324,17 @@ def put_spread_backtest(spot: pd.Series, rate: pd.Series, vol: pd.Series, dates,
 # actifs de couverture à 100 %, devises émergentes non couvertes ; exposition devises < 20 % de l'actif.
 FX_LIMIT = 0.20
 
+
+
+def verdict(m) -> tuple[str, str, str]:
+    """(badge, explication, niveau) à partir de l'alpha factoriel et de son t-stat."""
+    a, t = m["Alpha factoriel"], m["Alpha t-stat"]
+    if a > 0 and t >= 2:
+        return "✅ Création de valeur robuste", "alpha positif et statistiquement significatif", "success"
+    if a < 0 and t <= -2:
+        return "❌ Destruction de valeur", "alpha négatif et statistiquement significatif", "error"
+    if abs(a) < 0.0025:
+        return "⚪ Proche de l'indice", "alpha quasi nul : le fonds se comporte comme son marché", "info"
+    if a > 0:
+        return "🟡 Valeur ajoutée non démontrée", "alpha positif mais pas assez régulier pour exclure le hasard", "warning"
+    return "🟠 Pas de valeur ajoutée", "alpha négatif, mais pas de façon statistiquement certaine", "warning"
