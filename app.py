@@ -39,8 +39,13 @@ PCT_COLS = {
 COLORS = px.colors.qualitative.Safe
 
 
+def fmt_num(x, d=2):
+    """Nombre au format français (virgule décimale)."""
+    return "–" if pd.isna(x) else f"{x:.{d}f}".replace(".", ",")
+
+
 def fmt_pct(x, d=2):
-    return "–" if pd.isna(x) else f"{x * 100:.{d}f} %"
+    return "–" if pd.isna(x) else fmt_num(x * 100, d) + " %"
 
 
 def style_metrics(df: pd.DataFrame):
@@ -49,9 +54,9 @@ def style_metrics(df: pd.DataFrame):
     fmt.update({"TER": "{:.2f} %", "Encours (Md$)": "{:.1f}", "Nb semaines": "{:.0f}", "Score": "{:.0f}"})
     df = df.copy()
     if "TER" in df:  # frais souvent indisponibles : affichage texte pour éviter « None »
-        df["TER"] = df["TER"].map(lambda v: "–" if pd.isna(v) else f"{v:.2f} %")
+        df["TER"] = df["TER"].map(lambda v: "–" if pd.isna(v) else fmt_num(v) + " %")
     num = [c for c in df.columns if pd.api.types.is_numeric_dtype(df[c])]
-    return df.style.format({k: v for k, v in fmt.items() if k in num}, na_rep="–")
+    return df.style.format({k: v for k, v in fmt.items() if k in num}, na_rep="–", decimal=",", thousands=" ")
 
 
 # Définitions affichées en infobulle (en-têtes de tableau et indicateurs)
@@ -159,6 +164,8 @@ with st.sidebar:
     if bench.startswith("ICE"):
         st.caption("ℹ️ Les indices ICE BofA ne sont diffusés gratuitement par FRED que sur ~3 ans.")
 
+    with st.expander("📖 Glossaire"):
+        st.markdown("\n".join(f"- **{k}** : {v}" for k, v in HELP.items()))
     st.divider()
     st.caption(f"Gérants : {D.FRR_SOURCE}.")
     st.caption(f"Données au {data['asof']:%d/%m/%Y %H:%M} (Yahoo Finance, FRED)")
@@ -225,7 +232,9 @@ st.caption(
     f"en {seg['currency']}, total return (dividendes réinvestis), nets de frais"
 )
 
-with st.expander("ℹ️ À quoi sert cet outil ? — mode d'emploi en 3 étapes", expanded=True):
+first_visit = st.session_state.setdefault("first_visit", True)
+st.session_state.first_visit = False
+with st.expander("ℹ️ À quoi sert cet outil ? — mode d'emploi en 3 étapes", expanded=first_visit):
     st.markdown(
         "Cet outil évalue **les gérants actuels du FRR** sur les segments Crédit Euro (IG et haut rendement) "
         "et High Yield US, en vue des appels d'offres 2027. Il les compare à leur indice et à une alternative "
@@ -270,7 +279,7 @@ with tabs[0]:
         )
     c = st.columns(4)
     c[0].metric("Rendement de l'indice (par an)", fmt_pct(A.ann_return(b.dropna())), help="Rendement annualisé du benchmark sur la période.")
-    c[1].metric("Meilleur information ratio", short(best_ir), f"IR {table.loc[best_ir, 'Information ratio']:.2f}", help=HELP["Information ratio"])
+    c[1].metric("Meilleur information ratio", short(best_ir), f"IR {fmt_num(table.loc[best_ir, 'Information ratio'])}", help=HELP["Information ratio"])
     c[2].metric("Meilleur alpha factoriel", short(best_alpha), fmt_pct(table.loc[best_alpha, "Alpha factoriel"]), help=HELP["Alpha factoriel"])
     c[3].metric("Fonds battant l'indice", f"{n_beat} / {len(table)}", help=HELP["Surperf. annualisée"])
 
@@ -328,26 +337,36 @@ with tabs[0]:
     for col_name in ["Surperf. annualisée", "Information ratio", "Alpha factoriel"]:
         styler = styler.map(_color, subset=[col_name])
     styler = styler.map(lambda v: _color(v, good_if_positive=False, pivot=1.0), subset=["Down capture"])
-    st.dataframe(
+    order = list(table[cols].sort_values("Alpha factoriel", ascending=False).index)
+    event = st.dataframe(
         styler,
         width="stretch",
         column_config={c: st.column_config.Column(c, help=HELP.get(c)) for c in cols},
+        on_select="rerun", selection_mode="single-row", key=f"synth_{seg_name}",
     )
+    if event.selection.rows:
+        picked = order[event.selection.rows[0]]
+        if st.session_state.get("_last_pick") != picked:  # nouveau clic seulement : ne pas écraser un choix manuel
+            st.session_state._last_pick = picked
+            st.session_state.gerant = picked
+            st.toast(f"{short(picked)} sélectionné : ouvrez l'onglet 🔍 Gérant.")
     st.caption("Classement par alpha factoriel. Vert = favorable, rouge = défavorable. "
-               "Survolez les en-têtes pour la définition de chaque indicateur.")
+               "**Cliquez sur une ligne** pour ouvrir ce fonds dans l'onglet Gérant ; survolez les en-têtes pour les définitions.")
 
 # ======================================================================================
 # 2. Analyse gérant
 # ======================================================================================
 with tabs[1]:
-    f = st.selectbox("Gérant à analyser", list(table.index), format_func=label)
+    if st.session_state.get("gerant") not in table.index:  # défaut : meilleur alpha du segment
+        st.session_state.gerant = table["Alpha factoriel"].idxmax()
+    f = st.selectbox("Gérant à analyser", list(table.index), format_func=label, key="gerant")
     m, fr = table.loc[f], regs[f]
     meta = D.FUNDS[f]
 
     badge, why, level = verdict(m)
     getattr(st, level)(
         f"### {badge}\n**{meta['short']}** ({meta['name']}) : {why} "
-        f"(alpha {fmt_pct(m['Alpha factoriel'])} par an, t = {m['Alpha t-stat']:.1f}). "
+        f"(alpha {fmt_pct(m['Alpha factoriel'])} par an, t = {fmt_num(m['Alpha t-stat'], 1)}). "
         f"{'Le fonds bat' if m['Surperf. annualisée'] > 0 else 'Le fonds ne bat pas'} son indice "
         f"({fmt_pct(m['Surperf. annualisée'])} par an, net de frais)."
     )
@@ -361,10 +380,10 @@ with tabs[1]:
     c = st.columns(6)
     c[0].metric("Rdt annualisé", fmt_pct(m["Rdt annualisé"]), fmt_pct(m["Surperf. annualisée"]) + " vs indice", help=HELP["Rdt annualisé"])
     c[1].metric("Tracking error", fmt_pct(m["Tracking error"]), help=HELP["Tracking error"])
-    c[2].metric("Information ratio", f"{m['Information ratio']:.2f}", help=HELP["Information ratio"])
-    c[3].metric("Alpha factoriel", fmt_pct(m["Alpha factoriel"]), f"t = {m['Alpha t-stat']:.1f}", delta_color="off", help=HELP["Alpha factoriel"] + " " + HELP["Alpha t-stat"])
+    c[2].metric("Information ratio", fmt_num(m["Information ratio"]), help=HELP["Information ratio"])
+    c[3].metric("Alpha factoriel", fmt_pct(m["Alpha factoriel"]), f"t = {fmt_num(m['Alpha t-stat'], 1)}", delta_color="off", help=HELP["Alpha factoriel"] + " " + HELP["Alpha t-stat"])
     c[4].metric("Max drawdown", fmt_pct(m["Max drawdown"]), fmt_pct(A.drawdown(b.dropna()).min()) + " indice", delta_color="off", help=HELP["Max drawdown"])
-    c[5].metric("Frais (TER)", "–" if pd.isna(m["TER"]) else f"{m['TER']:.2f} %", help=HELP["TER"])
+    c[5].metric("Frais (TER)", "–" if pd.isna(m["TER"]) else fmt_num(m["TER"]) + " %", help=HELP["TER"])
 
     # --- commentaire automatique (style note de comité) -----------------------------
     signif = abs(m["Alpha t-stat"]) >= 2
@@ -377,7 +396,7 @@ with tabs[1]:
         f"Sur la période, le fonds a délivré **{fmt_pct(m['Rdt annualisé'])}** par an contre "
         f"{fmt_pct(m['Rdt benchmark'])} pour l'indice, soit **{fmt_pct(m['Surperf. annualisée'])}** "
         f"de surperformance nette de frais, pour une tracking error de {fmt_pct(m['Tracking error'])} "
-        f"(IR = {m['Information ratio']:.2f}). Après neutralisation des expositions crédit, taux et actions, "
+        f"(IR = {fmt_num(m['Information ratio'])}). Après neutralisation des expositions crédit, taux et actions, "
         f"l'alpha ressort à **{fmt_pct(m['Alpha factoriel'])}** par an, {signif_txt}. "
         f"Le gérant capte {fmt_pct(m['Up capture'], 0)} des hausses et {fmt_pct(m['Down capture'], 0)} des baisses du marché "
         f"({'profil asymétrique favorable' if asym > 0.02 else 'profil défavorable en baisse' if asym < -0.02 else 'profil symétrique'}). "
@@ -517,7 +536,7 @@ with tabs[2]:
     for t in table.index:
         r = []
         if pd.notna(table.loc[t, "TER"]) and table.loc[t, "TER"] > ter_max + 1e-9:
-            r.append(f"frais {table.loc[t, 'TER']:.2f} %")
+            r.append(f"frais {fmt_num(table.loc[t, 'TER'])} %")
         if table.loc[t, "Max drawdown"] < dd_floor:
             r.append(f"repli {fmt_pct(table.loc[t, 'Max drawdown'], 1)}")
         if aum_min > 0 and (pd.isna(table.loc[t, "Encours (Md$)"]) or table.loc[t, "Encours (Md$)"] < aum_min):
@@ -560,7 +579,7 @@ with tabs[2]:
                     f"**Points forts :** {', '.join(good) if good else '—'}  \n"
                     f"**Point de vigilance :** {', '.join(bad) if bad else 'aucun'}  \n"
                     f"Surperf. {fmt_pct(table.loc[t, 'Surperf. annualisée'])} · alpha {fmt_pct(table.loc[t, 'Alpha factoriel'])} · "
-                    + (f"frais {table.loc[t, 'TER']:.2f} %" if pd.notna(table.loc[t, "TER"]) else "frais n.d.")
+                    + (f"frais {fmt_num(table.loc[t, 'TER'])} %" if pd.notna(table.loc[t, "TER"]) else "frais n.d.")
                 )
 
         # --- 4. Classement complet + radar --------------------------------------------------
