@@ -27,7 +27,7 @@ START = "2019-10-01"  # début de l'€STR
 # Les ETF « Alternative passive » servent de point de comparaison.
 # --------------------------------------------------------------------------------------
 CANDIDATES_SOURCE = "Fonds ouverts des principaux gérants du marché (données Morningstar via Yahoo Finance)"
-FRR_SOURCE = "Listes des marchés publics conclus par le FRR en 2021 et 2023 (fondsdereserve.fr)"
+FRR_SOURCE = "Listes des marchés publics conclus par le FRR et rapport annuel 2025 (fondsdereserve.fr)"
 FUNDS = {
     # ---- High Yield US (USD) — marché 2022FRR01, attribué en février 2023 ------------
     "OHYFX": dict(short="JPMorgan AM", name="JPMorgan High Yield I", segment="HY US", style="Gérant FRR",
@@ -37,9 +37,9 @@ FUNDS = {
     "AGDYX": dict(short="AllianceBernstein", name="AB High Income Advisor", segment="HY US", style="Gérant FRR",
                   mandate="HY US · 2022FRR01 · attribué le 21/02/2023",
                   proxy="proxy imparfait : stratégie high income incluant du HY mondial et de la dette émergente"),
-    "TYHYX": dict(short="BFT IM (Amundi)", name="Victory Pioneer High Yield Y", segment="HY US", style="Gérant FRR",
-                  mandate="HY US · 2022FRR01 · attribué le 20/02/2023",
-                  proxy="proxy imparfait : BFT IM délègue à un sous-gérant non publié ; fonds HY US de l'ex-Amundi US (Pioneer)"),
+    "PHYQX": dict(short="CPR AM / PGIM", name="PGIM High Yield R6", segment="HY US", style="Gérant FRR",
+                  mandate="HY US · 2022FRR01 · attribué le 20/02/2023 (BFT IM, devenu CPR AM ; sous-gérant PGIM Fixed Income)",
+                  proxy="fonds HY US phare du sous-gérant PGIM Fixed Income (rapport annuel FRR 2025)"),
     "HYG": dict(short="ETF iShares HY", name="iShares iBoxx $ HY Corp", segment="HY US", style="Alternative passive"),
     "USHY": dict(short="ETF iShares Broad HY", name="iShares Broad USD HY Corp", segment="HY US", style="Alternative passive"),
     # ---- High Yield Euro (EUR) — marché 2020FRR01 lot 2, attribué en 2021 ------------
@@ -59,10 +59,10 @@ FUNDS = {
     "0P00001RX7.F": dict(short="AXA IM (BNP PAM)", name="AXA WF Euro Credit Plus I", segment="Crédit Euro IG", style="Gérant FRR",
                          mandate="Crédit € IG · 2020FRR01 lot 1 · attribué le 29/09/2021 (AXA IM, devenu BNP Paribas AM Europe)",
                          proxy="fonds crédit euro du gérant"),
-    "0P0001DFO1.F": dict(short="M&G (via BFT)", name="M&G (Lux) Euro Corporate Bond C", segment="Crédit Euro IG", style="Gérant FRR",
-                         mandate="Crédit € IG · 2020FRR01 lot 1 · attribué le 28/10/2021 (BFT IM – M&G)", proxy="fonds crédit euro du sous-gérant"),
-    "0P00000ECM.F": dict(short="Union Inv. (via BFT)", name="UniEuroRenta Corporates A", segment="Crédit Euro IG", style="Gérant FRR",
-                         mandate="Crédit € IG · 2020FRR01 lot 1 · attribué le 29/09/2021 (BFT IM – Union Investment)",
+    "0P0001DFO1.F": dict(short="M&G (via CPR)", name="M&G (Lux) Euro Corporate Bond C", segment="Crédit Euro IG", style="Gérant FRR",
+                         mandate="Crédit € IG · 2020FRR01 lot 1 · attribué le 28/10/2021 (BFT IM, devenu CPR AM – M&G)", proxy="fonds crédit euro du sous-gérant"),
+    "0P00000ECM.F": dict(short="Union Inv. (via CPR)", name="UniEuroRenta Corporates A", segment="Crédit Euro IG", style="Gérant FRR",
+                         mandate="Crédit € IG · 2020FRR01 lot 1 · attribué le 29/09/2021 (BFT IM, devenu CPR AM – Union Investment)",
                          proxy="fonds crédit euro du sous-gérant"),
     "0P00000S3H.F": dict(short="BlackRock", name="BGF Euro Corporate Bond A2", segment="Crédit Euro IG", style="Gérant FRR",
                          mandate="Crédit € IG · 2020FRR01 lot 1 · attribué le 29/09/2021", proxy="fonds crédit euro du gérant"),
@@ -111,6 +111,12 @@ MARKET_TICKERS = {
     "^GSPC": "S&P 500",
     "^STOXX50E": "Euro Stoxx 50",
     "EURUSD=X": "EUR/USD",
+    "EURJPY=X": "EUR/JPY",
+    "EURGBP=X": "EUR/GBP",
+    "EURCHF=X": "EUR/CHF",
+    "^N225": "Nikkei 225 (actifs en JPY)",
+    "^FTSE": "FTSE 100 (actifs en GBP)",
+    "^SSMI": "SMI (actifs en CHF)",
 }
 
 # Séries FRED
@@ -122,6 +128,9 @@ FRED_SERIES = {
     "SOFR": "SOFR",  # taux court USD (%)
     "ESTR": "ECBESTRVOLWGTTRMDMNRT",  # €STR (%)
     "UST5Y": "DGS5",  # taux 5 ans US (%)
+    "SONIA": "IUDSOIA",  # taux court GBP (%)
+    "JPY3M": "IR3TIB01JPM156N",  # taux 3 mois JPY (%, mensuel)
+    "CHF3M": "IR3TIB01CHM156N",  # taux 3 mois CHF (%, mensuel)
 }
 
 # Paramétrage de chaque segment d'appel d'offres

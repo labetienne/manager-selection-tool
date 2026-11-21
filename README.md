@@ -20,13 +20,16 @@ stratégie** (proxy, détaillé dans `data.py`), et comparé à une alternative 
 Morningstar via Yahoo Finance, pour situer les gérants du FRR face au marché comme dans un appel d'offres.
 
 ## Fonctionnalités
-| Onglet | Contenu | Lien avec les missions du stage |
+| Onglet | Contenu | Mission du stage |
 |---|---|---|
-| Vue d'ensemble | perf. cumulée, couple rendement/risque, tableau comparatif | suivi des classes d'actifs cotées |
-| Analyse gérant | TE, IR, capture ratios, drawdown, **régression crédit / taux / actions → alpha factoriel**, synthèse auto | analyse perf./facteurs/risques, création de valeur des gérants |
-| Scoring appel d'offres | grille multicritère pondérable, radar, short-list, export Excel | analyses d'appels d'offres |
-| Overlay change | simulation couverture EUR/USD par forwards, coût de portage €STR–SOFR, suivi des déviations du ratio | suivi de la couverture devise |
-| Overlay options | put spread Euro Stoxx 50 (Black-Scholes), grecques, **reporting hebdomadaire** P&L | reporting de suivi options |
+| Synthèse gérants | gérants FRR vs candidats vs ETF : perf., IR, alpha factoriel, verdicts | 1, 2 – suivi des mandats |
+| Gérant | diagnostic d'un gérant, décomposition du rendement, **fiche PDF** (rapport au CSG) | 2, 4 – création de valeur, CSG Performance |
+| Portefeuille FRR | **titres détenus au 30/09/2026** : échéances, émetteurs, concentration, **limite d'emprise 3 %**, OPC | 2, 4 – risques, suivi |
+| Overlay change | couverture **par devise** (USD, JPY, GBP, CHF), cible 90 %/100 %, **limite 20 %**, actions à mener | 3 – déviations par devise |
+| Overlay dérivés | put spread Euro Stoxx 50 / S&P 500, reporting hebdo, scénarios ; **futures tactiques** vs allocation | 3 – options, exposition tactique |
+| Appel d'offres | scoring pondérable, critères éliminatoires, podium, robustesse, export Excel | 5 – AO HY € 2026 |
+
+Contexte FRR (gouvernance, allocation, overlay, risques) : voir `NOTES_FRR.md`.
 
 ## Lancer
 ```bash

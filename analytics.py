@@ -291,7 +291,7 @@ def put_spread_backtest(spot: pd.Series, rate: pd.Series, vol: pd.Series, dates,
     rows, pos, cum, premiums = [], None, 0.0, 0.0
 
     def row(dte, S, value, delta, pnl, event):
-        return {"Date": dte, "Euro Stoxx 50": S, "Strikes": f"{pos['K1']:.0f} / {pos['K2']:.0f}",
+        return {"Date": dte, "Indice": S, "Strikes": f"{pos['K1']:.0f} / {pos['K2']:.0f}",
                 "Valeur (M€)": value * pos["units"] / 1e6, "Delta (M€)": delta * pos["units"] * S / 1e6,
                 "P&L semaine (M€)": pnl / 1e6, "P&L cumulé (M€)": cum / 1e6, "Évènement": event}
 
@@ -317,3 +317,9 @@ def put_spread_backtest(spot: pd.Series, rate: pd.Series, vol: pd.Series, dates,
         pos["last"] = g["price"]
         rows.append(row(dte, S, g["price"], g["delta"], pnl, ""))
     return pd.DataFrame(rows).set_index("Date"), pos, premiums
+
+
+# Politique de couverture du FRR (rapport annuel 2025) : actifs de performance couverts à 90 %,
+# actifs de couverture à 100 %, devises émergentes non couvertes ; exposition devises < 20 % de l'actif.
+FX_LIMIT = 0.20
+

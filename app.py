@@ -41,7 +41,7 @@ COLORS = px.colors.qualitative.Safe
 
 def fmt_num(x, d=2):
     """Nombre au format français (virgule décimale)."""
-    return "–" if pd.isna(x) else f"{x:.{d}f}".replace(".", ",")
+    return "–" if pd.isna(x) else f"{x:,.{d}f}".replace(",", " ").replace(".", ",")
 
 
 def fmt_pct(x, d=2):
@@ -236,26 +236,27 @@ first_visit = st.session_state.setdefault("first_visit", True)
 st.session_state.first_visit = False
 with st.expander("ℹ️ À quoi sert cet outil ? — mode d'emploi en 3 étapes", expanded=first_visit):
     st.markdown(
-        "Cet outil évalue **les gérants actuels du FRR** sur les segments Crédit Euro (IG et haut rendement) "
-        "et High Yield US, en vue des appels d'offres 2027. Il les compare à leur indice et à une alternative "
-        "passive (ETF), et identifie ceux qui **créent réellement de la valeur**, c'est-à-dire au-delà de ce "
-        "que rapportent mécaniquement le crédit, les taux et les actions.  \n"
+        "Prototype d'outil de **suivi des mandats et de l'overlay** pour la Gestion déléguée du FRR. Il évalue **les "
+        "gérants actuels du FRR** en crédit euro (IG, haut rendement) et High Yield US — **21,5 % du portefeuille** à "
+        "eux deux pour le HY — face à leur indice, au marché et au passif, analyse le **portefeuille réellement détenu**, "
+        "suit la **couverture de change** et les **dérivés**, et prépare les **appels d'offres**.  \n"
         "*Les mandats du FRR étant dédiés et non publics, chaque gérant est représenté par un fonds ouvert "
         "de la même stratégie (proxy).*"
     )
     s1, s2, s3 = st.columns(3)
-    s1.markdown("**① Choisir le mandat**  \nDans la barre latérale : segment (HY US, HY Euro, Crédit Euro IG), indice et période.")
-    s2.markdown("**② Comparer les gérants**  \nOnglet *Synthèse* pour la vue globale, onglet *Gérant* pour le diagnostic détaillé d'un fonds.")
-    s3.markdown("**③ Établir la short-list**  \nOnglet *Scoring* : pondérez vos critères, obtenez un classement et exportez-le en Excel.")
-    st.caption("Les onglets *Change* et *Options* illustrent le suivi de l'overlay (couverture EUR/USD, protection actions). "
-               "Survolez les ⓘ et les en-têtes de colonnes pour les définitions.")
+    s1.markdown("**① Suivre les mandats**  \nBarre latérale : segment, indice, période. Onglets *Synthèse gérants* et *Gérant* (fiche PDF pour le CSG).")
+    s2.markdown("**② Suivre le portefeuille et l'overlay**  \nOnglets *Portefeuille FRR* (titres détenus), *Overlay change* (couverture par devise) et *Overlay dérivés* (options, futures).")
+    s3.markdown("**③ Préparer un appel d'offres**  \nOnglet *Appel d'offres* : pondérez vos critères, obtenez une short-list et exportez-la en Excel.")
+    st.caption("Survolez les ⓘ et les en-têtes de colonnes pour les définitions ; glossaire dans la barre latérale. "
+               "Chiffres FRR : rapport annuel 2025 et publications de fondsdereserve.fr.")
 
-tabs = st.tabs(["🏁 Synthèse", "🔍 Gérant", "🏆 Scoring", "💱 Change", "🛡️ Options", "📘 Méthode"])
+t_synth, t_ger, t_ptf, t_fx, t_der, t_ao, t_meth = st.tabs(
+    ["🏁 Synthèse gérants", "🔍 Gérant", "🏛️ Portefeuille FRR", "💱 Overlay change", "🛡️ Overlay dérivés", "🏆 Appel d'offres", "📘 Méthode"])
 
 # ======================================================================================
 # 1. Vue d'ensemble
 # ======================================================================================
-with tabs[0]:
+with t_synth:
     best_ir = table["Information ratio"].idxmax()
     best_alpha = table["Alpha factoriel"].idxmax()
     n_beat = int((table["Surperf. annualisée"] > 0).sum())
@@ -356,7 +357,7 @@ with tabs[0]:
 # ======================================================================================
 # 2. Analyse gérant
 # ======================================================================================
-with tabs[1]:
+with t_ger:
     if st.session_state.get("gerant") not in table.index:  # défaut : meilleur alpha du segment
         st.session_state.gerant = table["Alpha factoriel"].idxmax()
     f = st.selectbox("Gérant à analyser", list(table.index), format_func=label, key="gerant")
@@ -479,12 +480,122 @@ with tabs[1]:
         st.plotly_chart(fig, width="stretch")
 
 # ======================================================================================
+# Portefeuille FRR — composition publiée (missions 2 et 4 : analyse et suivi des risques)
+# ======================================================================================
+@st.cache_data
+def load_portfolio():
+    d = pd.read_csv(os.path.join(D.CACHE_DIR, "portefeuille_frr_30092026.csv"))
+    d["year"] = d["year"].where(d["year"] < 2100)  # années > 2100 = perpétuelles codées
+    return d
+
+
+def opc_category(name: str) -> str:
+    n = name.upper()
+    if any(k in n for k in ("LIQUIDITY", "MONETAIRE", "TRESORERIE", "COURT TERME", "3 M ")):
+        return "Monétaire"
+    if "EMERG" in n or "EM ALL CAP" in n or "LOCAL MARKE" in n:
+        return "Dette émergente" if any(k in n for k in ("BOND", "DEBT", "LOCAL")) else "Actions émergentes"
+    if any(k in n for k in ("ABS", "SECURITIZED", "STRUCTURED")):
+        return "Titrisation"
+    return "Thématique / autre"
+
+
+with t_ptf:
+    ptf = load_portfolio()
+    st.markdown(
+        "Analyse des **titres réellement détenus par le FRR au 30/09/2026**, d'après la composition trimestrielle publiée "
+        "sur fondsdereserve.fr (agrégée sur l'ensemble des mandats). Elle illustre le suivi des risques que réalisent la "
+        "Gestion déléguée et le département Risques : concentration, échéances, **limite d'emprise de 3 %**."
+    )
+    tot = ptf.groupby("type")["value"].sum() / 1e9
+    k = st.columns(4)
+    k[0].metric("Actions détenues en direct", f"{fmt_num(tot.get('Action', 0), 2)} Md€", f"{(ptf.type == 'Action').sum()} lignes", delta_color="off")
+    k[1].metric("Obligations", f"{fmt_num(tot.get('Obligation', 0), 2)} Md€", f"{(ptf.type == 'Obligation').sum()} lignes", delta_color="off")
+    k[2].metric("OPC (fonds)", f"{fmt_num(tot.get('OPC', 0), 2)} Md€", f"{(ptf.type == 'OPC').sum()} fonds", delta_color="off")
+    k[3].metric("Titres de créance (trésorerie)", f"{fmt_num(tot.get('TCN', 0), 2)} Md€", f"{(ptf.type == 'TCN').sum()} lignes", delta_color="off")
+
+    # --- obligations ---------------------------------------------------------------------
+    st.markdown("##### Poche obligataire")
+    bonds = ptf[ptf.type == "Obligation"].copy()
+    w = bonds["value"] / bonds["value"].sum()
+    bins = [0, 2027, 2030, 2035, 2045, 2100]
+    labels = ["≤ 2027", "2028-2030", "2031-2035", "2036-2045", "> 2045"]
+    bonds["Échéance"] = pd.cut(bonds["year"], bins=bins, labels=labels).astype(object).fillna("Perpétuelle / n.d.")
+    by_issuer = bonds.groupby("issuer")["value"].sum().sort_values(ascending=False)
+    oat = by_issuer.filter(like="FRANCE O").sum()
+    corp = by_issuer.drop([i for i in by_issuer.index if "FRANCE O" in i])
+    top10 = corp.head(10).sum() / corp.sum()
+    k = st.columns(4)
+    k[0].metric("Émetteurs distincts", fmt_num(bonds["issuer"].nunique(), 0))
+    k[1].metric("Coupon moyen pondéré", fmt_num((bonds["coupon"] * w).sum(), 2) + " %",
+                help="Moyenne des coupons pondérée par la valeur de marché (lignes avec coupon identifié).")
+    k[2].metric("OAT (adossement)", f"{fmt_num(oat / 1e9, 2)} Md€", fmt_pct(oat / bonds["value"].sum(), 0) + " de la poche", delta_color="off")
+    k[3].metric("Top 10 émetteurs privés", fmt_pct(top10, 1), "de la poche crédit", delta_color="off",
+                help="Concentration : part des 10 premiers émetteurs d'entreprises dans les obligations hors OAT.")
+    left, right = st.columns(2)
+    with left:
+        prof = bonds.groupby("Échéance")["value"].sum().reindex(labels + ["Perpétuelle / n.d."]) / 1e9
+        fig = px.bar(prof.rename("Md€"), title="Profil d'échéances (Md€)", height=330, text_auto=".2f")
+        fig.update_traces(marker_color="#1f5fa8")
+        fig.update_layout(showlegend=False, margin=dict(t=50, b=10), xaxis_title=None, yaxis_title=None)
+        st.plotly_chart(fig, width="stretch")
+    with right:
+        top = (corp.head(12) / 1e6).rename("M€").to_frame()
+        top["% poche crédit"] = corp.head(12) / corp.sum()
+        st.markdown("**Premiers émetteurs privés**")
+        st.dataframe(top.style.format({"M€": "{:,.0f}", "% poche crédit": "{:.2%}"}, decimal=",", thousands=" "),
+                     width="stretch", height=330)
+
+    # --- actions : limite d'emprise --------------------------------------------------------
+    st.markdown("##### Poche actions : limite d'emprise (≤ 3 % du capital d'un émetteur)")
+    eq = ptf[ptf.type == "Action"].dropna(subset=["emprise"])
+    mx = eq.loc[eq["emprise"].idxmax()]
+    near = eq[eq["emprise"] >= 0.015].sort_values("emprise", ascending=False)
+    (st.success if mx["emprise"] < 0.03 else st.error)(
+        f"Emprise maximale : **{fmt_pct(mx['emprise'], 2)}** sur **{mx['name']}** "
+        f"({'dans' if mx['emprise'] < 0.03 else 'au-delà de'} la limite réglementaire de 3 %). "
+        f"{len(near)} lignes dépassent 1,5 % : des petites et moyennes capitalisations françaises (mandats PMC France)."
+    )
+    left, right = st.columns(2)
+    with left:
+        st.markdown("**Lignes les plus proches de la limite**")
+        st.dataframe(near.head(12).set_index("name")[["value", "emprise"]].rename(columns={"value": "Valeur (M€)", "emprise": "Emprise"})
+                     .assign(**{"Valeur (M€)": lambda x: x["Valeur (M€)"] / 1e6})
+                     .style.format({"Valeur (M€)": "{:,.1f}", "Emprise": "{:.2%}"}, decimal=",", thousands=" "), width="stretch")
+    with right:
+        st.markdown("**Premières lignes en valeur**")
+        big = eq.nlargest(12, "value").set_index("name")[["value"]] / 1e6
+        st.dataframe(big.rename(columns={"value": "Valeur (M€)"}).style.format("{:,.1f}", decimal=",", thousands=" "), width="stretch")
+
+    # --- OPC ---------------------------------------------------------------------------------
+    st.markdown("##### Fonds (OPC)")
+    opc = ptf[ptf.type == "OPC"].copy()
+    opc["Catégorie"] = opc["name"].map(opc_category)
+    left, right = st.columns([2, 3])
+    with left:
+        cat = opc.groupby("Catégorie")["value"].sum().sort_values() / 1e9
+        fig = px.bar(cat, orientation="h", title="OPC par catégorie (Md€)", height=300, text_auto=".2f", labels={"value": "", "Catégorie": ""})
+        fig.update_traces(marker_color="#2a9d8f"); fig.update_layout(showlegend=False, margin=dict(t=50, b=10))
+        st.plotly_chart(fig, width="stretch")
+    with right:
+        st.dataframe(opc.nlargest(10, "value").set_index("name")[["Catégorie", "value"]]
+                     .assign(value=lambda x: x["value"] / 1e6).rename(columns={"value": "Valeur (M€)"})
+                     .style.format({"Valeur (M€)": "{:,.0f}"}, decimal=",", thousands=" "), width="stretch", height=300)
+    st.caption("Source : « Composition du portefeuille – 30/09/2026 » (fondsdereserve.fr), extraite automatiquement du PDF ; "
+               "totaux rapprochés du document. Non disponibles : secteurs, notations, devises par ligne (il faudrait Bloomberg ou "
+               "FactSet) ; les titres ne sont pas attribués à un mandat.")
+
+# ======================================================================================
 # 3. Scoring appel d'offres
 # ======================================================================================
-with tabs[2]:
+with t_ao:
     st.markdown(
-        "**Objectif :** classer les candidats pour établir une **short-list** à rencontrer en due diligence. "
-        "Choisissez un profil de pondération, excluez si besoin les fonds non éligibles, puis lisez le podium."
+        "**Objectif :** pré-classer les candidats pour établir une **short-list** à rencontrer en due diligence. "
+        "Choisissez un profil de pondération, excluez si besoin les fonds non éligibles, puis lisez le podium.  \n"
+        "*Contexte : le FRR a lancé le 19/10/2026 l'appel d'offres de renouvellement des mandats **HY euro** (jusqu'à 6 "
+        "gérants, fonds dédiés, 5 + 1 ans, candidatures au 30/11/2026). Au FRR, la sélection des offres repose sur des "
+        "critères **majoritairement qualitatifs** (équipe, process, outils, ESG, frais) et passe par l'avis du Comité de "
+        "sélection des gérants (CSG) : cette grille quantitative n'en est qu'un pré-filtre.*"
     )
 
     # --- 1. Profil de pondération --------------------------------------------------------
@@ -653,125 +764,140 @@ with tabs[2]:
 # ======================================================================================
 # 4. Overlay change
 # ======================================================================================
-with tabs[3]:
+with t_fx:
     st.markdown(
-        "**Le problème :** un mandat HY US est investi en dollars, alors que le fonds raisonne en euros. "
-        "**La solution simulée :** vendre des dollars à terme pour neutraliser le change, en réajustant la "
-        "couverture à intervalle régulier."
+        "**Politique du FRR** (rapport annuel 2025) : les actifs de performance en devises développées sont couverts à "
+        "**90 %**, les actifs de couverture à **100 %**, les devises émergentes ne sont **pas couvertes**. L'exposition "
+        "totale au risque de change doit rester **sous 20 % de l'actif** (16,9 % fin 2025). La couverture est confiée au "
+        "mandat overlay « gestion passive du risque de change » (Mercer / Mesirow, ≈ 4 Md€ de notionnels de forwards)."
     )
-    usd_funds = [t for t, mm in D.FUNDS.items() if mm["segment"] == "HY US"]
-    with st.expander("⚙️ Paramètres de la couverture", expanded=False):
-        c = st.columns(5)
-        hf = c[0].selectbox("Fonds USD couvert", usd_funds, format_func=short, key="fx_fund")
-        mandate = c[1].number_input("Encours du mandat (M€)", 100, 10000, 1000, 100)
-        target = c[2].slider("Ratio de couverture cible", 0, 100, 100, 5, format="%d %%") / 100
-        freq_lab = c[3].selectbox("Réajustement", ["Mensuel", "Trimestriel", "Hebdomadaire"])
-        band = c[4].slider("Tolérance (±)", 0.5, 5.0, 2.0, 0.5, format="%.1f %%") / 100
+    FX = {"USD": ("EURUSD=X", "SOFR", "^GSPC"), "JPY": ("EURJPY=X", "JPY3M", "^N225"),
+          "GBP": ("EURGBP=X", "SONIA", "^FTSE"), "CHF": ("EURCHF=X", "CHF3M", "^SSMI")}
+    default_book = pd.DataFrame(
+        {"Exposition (M€)": [4700, 600, 400, 300], "Cible": [0.90, 0.90, 0.90, 0.90],
+         "Hypothèse": ["HY $ (8,6 %) + actions US et couvertes en options", "mandats actions japonaises + indiciel",
+                       "actions européennes hors zone euro", "actions européennes hors zone euro"]},
+        index=list(FX))
+    with st.expander("⚙️ Expositions par devise et paramètres (hypothèses modifiables)", expanded=False):
+        st.caption("Estimations à partir de l'allocation fin 2025 (rapport annuel) appliquée à 20,7 Md€ : le FRR ne publie "
+                   "pas sa répartition par devise. Modifiez les montants pour tester d'autres hypothèses.")
+        book = st.data_editor(
+            default_book, width="stretch", key="fx_book",
+            column_config={"Exposition (M€)": st.column_config.NumberColumn(min_value=0, step=100),
+                           "Cible": st.column_config.NumberColumn("Ratio cible", min_value=0.0, max_value=1.0, step=0.05, format="%.0f%%"),
+                           "Hypothèse": st.column_config.TextColumn(disabled=True)},
+        )
+        c = st.columns(4)
+        total_assets = c[0].number_input("Actif total du FRR (M€)", 1000, 50000, 20700, 100)
+        em_unhedged = c[1].number_input("Devises émergentes, non couvertes (M€)", 0, 10000, 2000, 100,
+                                        help="Actions émergentes (6,2 %) + part en devises locales de la dette émergente (≈ la moitié de 7 %).")
+        freq_lab = c[2].selectbox("Réajustement", ["Mensuel", "Trimestriel", "Hebdomadaire"])
+        band = c[3].slider("Tolérance (±)", 0.5, 5.0, 2.0, 0.5, format="%.1f %%") / 100
     freq = {"Mensuel": "M", "Trimestriel": "Q", "Hebdomadaire": "W"}[freq_lab]
 
-    hs = A.fx_hedge_simulation(levels[hf], levels["EURUSD=X"], fred["SOFR"], fred["ESTR"], target, freq)
-    hs = hs.loc[hs.index > start]
-    base = hs[["local_usd", "unhedged_eur", "hedged_eur"]]
-    base = base / base.iloc[0] * 100
-    wk = base.resample("W-FRI").last().pct_change().dropna()
-    vol = wk.std() * np.sqrt(52)
-    mdd = {k: A.drawdown(wk[k]).min() for k in wk}
-    yrs = (hs.index[-1] - hs.index[0]).days / 365.25
-    ann = (base.iloc[-1] / 100) ** (1 / yrs) - 1
-    cost = ann["hedged_eur"] - ann["unhedged_eur"]
+    sims, rows = {}, []
+    for ccy, (fx_t, rate_k, idx_t) in FX.items():
+        hs = A.fx_hedge_simulation(levels[idx_t], levels[fx_t], fred[rate_k], fred["ESTR"],
+                                   float(book.loc[ccy, "Cible"]), freq)
+        hs = hs.loc[hs.index > start]
+        sims[ccy] = hs
+        expo = float(book.loc[ccy, "Exposition (M€)"])
+        ratio, dev = hs["ratio"].iloc[-1], hs["deviation"].iloc[-1]
+        pnl = (hs["hedged_eur"].iloc[-1] / hs["hedged_eur"].iloc[0] - hs["unhedged_eur"].iloc[-1] / hs["unhedged_eur"].iloc[0]) * expo
+        rows.append({"Devise": ccy, "Exposition (M€)": expo, "Ratio cible": float(book.loc[ccy, "Cible"]),
+                     "Ratio actuel": ratio, "Écart (pts)": dev * 100,
+                     "À ajuster (M€)": -dev * expo, "Non couvert (M€)": (1 - ratio) * expo,
+                     "Gain/coût couverture (M€)": pnl,
+                     "Statut": "✅ dans la bande" if abs(dev) <= band else ("⚠️ sous-couvert" if dev < 0 else "⚠️ sur-couvert")})
+    fxt = pd.DataFrame(rows).set_index("Devise")
+    unhedged = fxt["Non couvert (M€)"].sum() + em_unhedged
+    share = unhedged / total_assets
 
-    # épisodes de dépassement (jours consécutifs hors bande)
-    out = hs["deviation"].abs() > band
-    episodes = A.breach_episodes(hs["deviation"], band)
-
-    # --- message clé -------------------------------------------------------------------
-    st.info(
-        f"#### En bref\n"
-        f"Sur la période, couvrir le dollar a **{'coûté' if cost < 0 else 'rapporté'} {fmt_pct(abs(cost))} par an** "
-        f"({fmt_pct(ann['unhedged_eur'])} non couvert → {fmt_pct(ann['hedged_eur'])} couvert), "
-        f"principalement à cause du différentiel de taux €STR – SOFR ({fmt_pct(hs['carry_ann'].mean())} en moyenne). "
-        f"En contrepartie, la volatilité du mandat en euros passe de **{fmt_pct(vol['unhedged_eur'], 1)} à "
-        f"{fmt_pct(vol['hedged_eur'], 1)}** et le pire repli de {fmt_pct(mdd['unhedged_eur'], 1)} à "
-        f"{fmt_pct(mdd['hedged_eur'], 1)}."
-    )
-
-    # --- statut du jour ----------------------------------------------------------------
-    ratio_now, dev_now = hs["ratio"].iloc[-1], hs["deviation"].iloc[-1]
-    expo_usd = mandate * levels["EURUSD=X"].dropna().iloc[-1]  # exposition en M$
-    adjust = -dev_now * expo_usd
-    if abs(dev_now) <= band:
-        st.success(
-            f"✅ **Aujourd'hui : couverture dans la bande** — ratio {ratio_now:.1%} pour une cible de {target:.0%} "
-            f"(tolérance ±{band:.1%}). Aucune action requise."
-        )
-    else:
-        st.error(
-            f"⚠️ **Aujourd'hui : couverture hors bande** — ratio {ratio_now:.1%} pour une cible de {target:.0%}. "
-            f"Action : **{'vendre' if adjust > 0 else 'racheter'} environ {abs(adjust):,.0f} M$ à terme**.".replace(",", " ")
-        )
-
+    # --- message clé et limite réglementaire --------------------------------------------
+    alerts = fxt[~fxt["Statut"].str.startswith("✅")]
     k = st.columns(4)
-    k[0].metric("Coût / gain de la couverture", fmt_pct(cost, 2) + " / an", help="Rendement couvert moins rendement non couvert, en euros.")
-    k[1].metric("Volatilité en EUR", fmt_pct(vol["hedged_eur"], 1), f"{(vol['hedged_eur'] - vol['unhedged_eur']) * 100:+.1f} pts vs non couvert",
-                delta_color="inverse", help="Écart-type annualisé des rendements hebdomadaires en euros.")
-    k[2].metric("Pire repli en EUR", fmt_pct(mdd["hedged_eur"], 1), f"{(mdd['hedged_eur'] - mdd['unhedged_eur']) * 100:+.1f} pts vs non couvert",
-                help="Max drawdown du mandat couvert, comparé au mandat non couvert.")
-    k[3].metric("Dépassements de la bande", f"{len(episodes)} épisode{'s' if len(episodes) > 1 else ''}",
-                f"{episodes['Jours'].mean():.0f} jours en moyenne" if len(episodes) else "aucun", delta_color="off",
-                help="Périodes consécutives pendant lesquelles le ratio de couverture est sorti de la bande de tolérance.")
+    k[0].metric("Exposition de change totale", fmt_pct(share, 1), f"limite {fmt_pct(A.FX_LIMIT, 0)}",
+                delta_color="off", help="Part non couverte des devises développées + devises émergentes, rapportée à l'actif total.")
+    k[1].metric("Marge sous la limite", f"{fmt_num((A.FX_LIMIT - share) * total_assets, 0)} M€",
+                help="Montant d'exposition supplémentaire possible avant d'atteindre 20 % de l'actif.")
+    k[2].metric("Devises hors bande", f"{len(alerts)} / {len(fxt)}", ", ".join(alerts.index) or "aucune", delta_color="off")
+    k[3].metric("Gain/coût de la couverture sur la période", f"{fmt_num(fxt['Gain/coût couverture (M€)'].sum(), 0)} M€",
+                help="Résultat de la couverture vs portefeuille non couvert (effet change + portage des forwards).")
+    st.progress(min(share / A.FX_LIMIT, 1.0), text=f"Utilisation de la limite réglementaire : {fmt_pct(share / A.FX_LIMIT, 0)}")
+    st.caption("Le FRR publiait 16,9 % fin 2025 : l'écart avec cette estimation vient du périmètre (non coté, OPC, devises "
+               "émergentes plus larges, positions tactiques) que ces hypothèses ne captent pas.")
+    if len(alerts):
+        st.warning("**Action :** " + " · ".join(
+            f"{ccy} : {'vendre' if r['À ajuster (M€)'] > 0 else 'racheter'} ≈ {fmt_num(abs(r['À ajuster (M€)']), 0)} M€ de {ccy} à terme"
+            for ccy, r in alerts.iterrows()))
+    else:
+        st.success(f"✅ Toutes les devises sont dans la bande de tolérance (±{fmt_pct(band, 1)}) : aucune action requise.")
+
+    st.dataframe(
+        fxt.style.format({"Exposition (M€)": "{:,.0f}", "Ratio cible": "{:.0%}", "Ratio actuel": "{:.1%}", "Écart (pts)": "{:+.1f}",
+                          "À ajuster (M€)": "{:+,.0f}", "Non couvert (M€)": "{:,.0f}", "Gain/coût couverture (M€)": "{:+,.0f}"},
+                         decimal=",", thousands=" "),
+        width="stretch",
+        column_config={"À ajuster (M€)": st.column_config.Column(help="Positif = vendre des devises à terme (sous-couverture)."),
+                       "Gain/coût couverture (M€)": st.column_config.Column(help="Sur la période d'analyse choisie dans la barre latérale.")},
+    )
 
     left, right = st.columns(2)
     with left:
-        fig = px.line(base.rename(columns={"local_usd": "En dollars", "unhedged_eur": "En euros, non couvert", "hedged_eur": "En euros, couvert"}),
-                      title="Performance du mandat (base 100)", height=360, labels={"value": "", "date": "", "Date": ""},
-                      color_discrete_sequence=["#9aa5b1", "#e76f51", "#1f5fa8"])
-        fig.update_layout(legend_title=None, margin=dict(t=50, b=10), hovermode="x unified", legend=dict(orientation="h", y=-0.15))
+        fig = go.Figure()
+        fig.add_hrect(y0=-band * 100, y1=band * 100, fillcolor="green", opacity=0.08, line_width=0)
+        for i, (ccy, hs) in enumerate(sims.items()):
+            fig.add_scatter(x=hs.index, y=hs["deviation"] * 100, name=ccy, line=dict(width=1.5, color=COLORS[i]))
+        fig.add_hline(y=0, line_dash="dot")
+        fig.update_layout(title="Écart au ratio cible par devise (pts, zone verte = tolérance)", height=360,
+                          margin=dict(t=50, b=10), legend=dict(orientation="h", y=-0.15), hovermode="x unified")
         st.plotly_chart(fig, width="stretch")
     with right:
-        fig = go.Figure()
-        fig.add_hrect(y0=target - band, y1=target + band, fillcolor="green", opacity=0.08, line_width=0)
-        fig.add_scatter(x=hs.index, y=hs["ratio"], name="Ratio de couverture", line=dict(color="#264653"))
-        fig.add_hline(y=target, line_dash="dot")
-        fig.add_scatter(x=hs.index[out], y=hs["ratio"][out], mode="markers", name="Hors bande", marker=dict(color="red", size=4))
-        fig.update_layout(title="Ratio de couverture (zone verte = tolérance)", height=360,
-                          yaxis_tickformat=".0%", margin=dict(t=50, b=10), legend=dict(orientation="h", y=-0.15))
+        cost = fxt["Gain/coût couverture (M€)"]
+        fig = go.Figure(go.Bar(x=cost.index, y=cost.values, marker_color=np.where(cost >= 0, "#2a9d8f", "#e76f51"),
+                               text=[f"{fmt_num(v, 0)} M€" for v in cost], textposition="outside"))
+        fig.update_layout(title="Gain / coût de la couverture par devise sur la période (M€)", height=360, margin=dict(t=50, b=10))
         st.plotly_chart(fig, width="stretch")
 
+    episodes = pd.concat({ccy: A.breach_episodes(hs["deviation"], band) for ccy, hs in sims.items()}, names=["Devise"])
     if len(episodes):
         with st.expander(f"Journal des dépassements ({len(episodes)} épisodes)"):
-            st.dataframe(
-                episodes.sort_values("Début", ascending=False)
-                .style.format({"Début": "{:%d/%m/%Y}", "Fin": "{:%d/%m/%Y}", "Écart max": "{:+.2%}"}),
-                width="stretch", hide_index=True,
-            )
-    st.caption("Hypothèses : forward valorisé par différentiel de taux courts (sans base cross-currency), "
-               "réajustement au dernier jour ouvré de chaque période. La couverture neutralise le change, pas le risque de crédit.")
+            st.dataframe(episodes.reset_index(level=0).sort_values("Début", ascending=False)
+                         .style.format({"Début": "{:%d/%m/%Y}", "Fin": "{:%d/%m/%Y}", "Écart max": "{:+.2%}"}),
+                         width="stretch", hide_index=True)
+    st.caption("Simulation : actifs en devise représentés par un indice local (S&P 500, Nikkei, FTSE, SMI), forwards valorisés "
+               "par différentiel de taux courts (€STR vs SOFR, SONIA, taux 3 mois JPY/CHF), réajustement au dernier jour ouvré "
+               "de chaque période. Les expositions par devise sont des hypothèses.")
 
 # ======================================================================================
 # 5. Overlay options — protection actions et reporting hebdomadaire
 # ======================================================================================
-with tabs[4]:
+with t_der:
     st.markdown(
-        "**Le principe :** une **assurance contre la baisse des actions**. Le fonds achète un *put spread* sur "
-        "l'Euro Stoxx 50 : il est indemnisé si l'indice baisse entre deux niveaux, en échange d'une prime payée d'avance. "
-        "La position est renouvelée à chaque échéance."
+        "**Au FRR :** les *actions couvertes en options* pèsent **7,6 % du portefeuille fin 2025** et passent à **8 %** dans "
+        "l'allocation 2026, pour ≈ **1 Md€ de notionnels** gérés par le mandat overlay « gestion passive des expositions » "
+        "(Amundi, BNP Paribas AM). C'est une **assurance contre la baisse des actions** (zone euro et US), dont le coût net "
+        "a été de **−43,3 M€ en 2025**. Simulation ci-dessous : un *put spread* renouvelé à chaque échéance."
     )
-    spot_s = levels["^STOXX50E"].dropna()
-    estr = fred["ESTR"].reindex(spot_s.index).ffill() / 100
-    rv = spot_s.pct_change().rolling(21).std() * np.sqrt(252)
+    UNDERLYINGS = {"Euro Stoxx 50": ("^STOXX50E", "ESTR"), "S&P 500": ("^GSPC", "SOFR")}
 
     with st.expander("⚙️ Paramètres de la stratégie", expanded=False):
-        c = st.columns(6)
-        notional = c[0].number_input("Montant protégé (M€)", 50, 5000, 1000, 50)
-        k_long = c[1].slider("Protection à partir de", 80, 100, 95, 1, format="%d %%",
+        c = st.columns(7)
+        idx_name = c[0].selectbox("Sous-jacent", list(UNDERLYINGS))
+        notional = c[1].number_input("Montant protégé (M€)", 50, 5000, 1000, 50)
+        k_long = c[2].slider("Protection à partir de", 80, 100, 95, 1, format="%d %%",
                              help="Strike du put acheté, en % du niveau de l'indice à l'ouverture.") / 100
         kl = int(round(k_long * 100))
-        k_short = c[2].slider("Protection jusqu'à", 50, kl - 1, min(85, kl - 1), 1, format="%d %%",
+        k_short = c[3].slider("Protection jusqu'à", 50, kl - 1, min(85, kl - 1), 1, format="%d %%",
                               help="Strike du put vendu : en dessous, la protection ne joue plus.") / 100
-        mat_m = c[3].selectbox("Durée", [1, 3, 6, 12], index=1, format_func=lambda x: f"{x} mois")
-        vol_prem = c[4].slider("Prime de vol (pts)", 0, 10, 3,
+        mat_m = c[4].selectbox("Durée", [1, 3, 6, 12], index=1, format_func=lambda x: f"{x} mois")
+        vol_prem = c[5].slider("Prime de vol (pts)", 0, 10, 3,
                                help="Écart supposé entre volatilité implicite et volatilité réalisée 1 mois.") / 100
-        q = c[5].slider("Rendement dividende", 0.0, 5.0, 3.0, 0.5, format="%.1f %%") / 100
+        q = c[6].slider("Rendement dividende", 0.0, 5.0, 3.0, 0.5, format="%.1f %%") / 100
+    idx_t, rate_k = UNDERLYINGS[idx_name]
+    spot_s = levels[idx_t].dropna()
+    estr = fred[rate_k].reindex(spot_s.index).ffill() / 100  # taux court de la devise du sous-jacent
+    rv = spot_s.pct_change().rolling(21).std() * np.sqrt(252)
 
     # --- backtest hebdomadaire sur 1 an ----------------------------------------------
     weekly = spot_s.resample("W-FRI").last().loc[lambda s_: s_.index > last - pd.DateOffset(years=1)]
@@ -850,7 +976,7 @@ with tabs[4]:
         fig.add_scatter(x=grid, y=today, name="Aujourd'hui", line=dict(dash="dash", color="#9aa5b1"))
         fig.add_vline(x=S_now, line_dash="dot", annotation_text="niveau actuel")
         fig.update_layout(title="Indemnisation selon le niveau de l'indice (M€)", height=360,
-                          margin=dict(t=50, b=10), xaxis_title="Euro Stoxx 50", legend=dict(orientation="h", y=-0.2))
+                          margin=dict(t=50, b=10), xaxis_title=idx_name, legend=dict(orientation="h", y=-0.2))
         st.plotly_chart(fig, width="stretch")
 
     # --- reporting hebdomadaire --------------------------------------------------------
@@ -871,7 +997,7 @@ with tabs[4]:
         view = view.copy()
         view.index = view.index.strftime("%d/%m/%Y")
         st.dataframe(
-            view.style.format({"Euro Stoxx 50": "{:,.0f}", "Valeur (M€)": "{:.1f}", "Delta (M€)": "{:+.0f}",
+            view.style.format({"Indice": "{:,.0f}", "Valeur (M€)": "{:.1f}", "Delta (M€)": "{:+.0f}",
                                "P&L semaine (M€)": "{:+.1f}", "P&L cumulé (M€)": "{:+.1f}"}, na_rep=""),
             width="stretch", height="auto" if n_show.startswith("8") else 360,
         )
@@ -887,10 +1013,26 @@ with tabs[4]:
         k[3].metric("Theta (1 jour)", f"{g_now['theta'] * u / 1e3:,.0f} k€", help="Perte de valeur liée au passage du temps, par jour.")
         st.caption("Valorisation Black-Scholes ; volatilité implicite approchée par la volatilité réalisée 1 mois + prime de vol.")
 
+    # --- futures : alignement du portefeuille sur l'allocation ---------------------------
+    st.markdown("##### 📐 Exposition tactique : portefeuille vs allocation stratégique")
+    st.caption("Le mandat overlay utilise des futures sur indices (≈ 2 Md€ de notionnels) pour aligner les expositions réelles "
+               "sur celles décidées par la gouvernance, sans toucher aux mandats. Données : rapport annuel 2025 (fin 2025).")
+    alloc = pd.DataFrame(
+        {"Allocation stratégique": [0.46, 0.36, 0.18], "Portefeuille fin 2025": [0.454, 0.380, 0.165]},
+        index=["Actions non couvertes", "Actifs de risque intermédiaire", "Actifs de couverture"])
+    assets_m = st.number_input("Actif total (M€)", 1000, 50000, 20700, 100, key="fut_assets")
+    alloc["Écart (pts)"] = (alloc["Portefeuille fin 2025"] - alloc["Allocation stratégique"]) * 100
+    alloc["Futures pour combler (M€)"] = -alloc["Écart (pts)"] / 100 * assets_m
+    st.dataframe(alloc.style.format({"Allocation stratégique": "{:.1%}", "Portefeuille fin 2025": "{:.1%}",
+                                     "Écart (pts)": "{:+.1f}", "Futures pour combler (M€)": "{:+,.0f}"},
+                                    decimal=",", thousands=" "), width="stretch")
+    st.caption("Lecture : positif = acheter des futures. Le FRR explique la sous-exposition actions de fin 2025 par la hausse de la "
+               "couverture optionnelle décidée en fin d'année ; il a aussi acheté 500 M€ de futures OAT pour allonger la duration.")
+
 # ======================================================================================
 # 6. Méthodologie
 # ======================================================================================
-with tabs[5]:
+with t_meth:
     st.markdown(
         """
 ### Objectif
@@ -910,6 +1052,9 @@ Crédit Euro et High Yield US, appliqué aux **gérants actuels du FRR**.
 - **Facteurs** : spreads OAS ICE BofA HY (FRED), ETF d'emprunts d'État (IEF / iShares Core € Govt),
   indices actions (S&P 500 / Euro Stoxx 50). Taux courts : SOFR et €STR.
 - Fréquence **hebdomadaire** (vendredi) pour synchroniser les places US et européennes.
+- **Portefeuille FRR** : composition publiée au 30/09/2026 (PDF de 47 pages, extraite ligne à ligne, totaux rapprochés).
+- **Overlay** : politique de couverture (90 % / 100 %, limite de 20 %), notionnels des mandats overlay et allocation
+  fin 2025 issus du rapport annuel 2025 ; expositions par devise = hypothèses modifiables.
 
 ### Indicateurs
 | Indicateur | Définition |
