@@ -153,7 +153,8 @@ with st.sidebar:
             "Fonds analysés", candidates, default=candidates, key=f"sel_{seg_name}_{'_'.join(univ)}",
             format_func=tag,
         )
-    st.caption(f"{counts['Gérant FRR']} gérants FRR · {counts['Candidat']} candidats · {counts['Alternative passive']} passifs")
+    st.caption(f"{counts['Gérant FRR']} gérants FRR · {counts['Candidat']} candidats · {counts['Alternative passive']} "
+               f"passif{'s' if counts['Alternative passive'] > 1 else ''}")
 
     first = rets[bench].first_valid_index()
     last = rets.index.max()
@@ -274,7 +275,8 @@ with t_synth:
         better = [t for t in cand_in if ranked[t] < ranked[best_frr]]
         st.markdown(
             f"🏛️ Meilleur gérant actuel du FRR : **{short(best_frr)}**, {'1ᵉʳ' if ranked[best_frr] == 1 else str(ranked[best_frr]) + 'ᵉ'} sur {len(table)} par alpha factoriel. "
-            + (f"{len(better)} candidat{'s' if len(better) > 1 else ''} externe{'s' if len(better) > 1 else ''} font mieux : "
+            + (f"{len(better)} candidat{'s' if len(better) > 1 else ''} externe{'s' if len(better) > 1 else ''} "
+               f"{'font' if len(better) > 1 else 'fait'} mieux : "
                + ", ".join(short(t) for t in sorted(better, key=lambda t: ranked[t])[:4]) + ("…" if len(better) > 4 else "") + "."
                if better else "Aucun candidat externe ne fait mieux.")
         )
@@ -1045,7 +1047,7 @@ Crédit Euro et High Yield US, appliqué aux **gérants actuels du FRR**.
 - **Fonds proxies** : pour chaque gérant, un fonds ouvert de la même stratégie (parts de capitalisation ou
   ajustées des coupons, Yahoo Finance / Morningstar) → rendements *total return* nets de frais.
   Historique disponible depuis mars 2022 pour les fonds UCITS européens. Frais non disponibles pour la plupart d'entre eux.
-- **Candidats externes** : 28 fonds de grands gérants (PIMCO, T. Rowe Price, Amundi, Robeco, Pictet, Muzinich…),
+- **Candidats externes** : 63 fonds de grands gérants (29 en HY US, 17 en HY €, 17 en crédit € IG : PIMCO, Capital Group, Loomis Sayles, Amundi, Robeco, Pictet, Muzinich, Schroders…),
   parts institutionnelles ou de capitalisation, sélectionnés pour leur corrélation à l'indice (0,80 à 0,98).
 - **Benchmarks** : indices ICE BofA US / Euro High Yield Total Return (FRED, ~3 ans d'historique gratuit)
   ou ETF proxy pour un historique plus long.
