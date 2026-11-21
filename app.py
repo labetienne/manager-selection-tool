@@ -17,9 +17,17 @@ import plotly.express as px
 import plotly.graph_objects as go
 import streamlit as st
 
+import importlib
+
 import analytics as A
 import data as D
-from report import build_fiche
+import report
+
+# Streamlit Cloud ne recharge pas les modules locaux quand seul leur fichier change :
+# sans ceci, un nouvel app.py peut tourner avec un ancien analytics.py en mémoire.
+for _mod in (A, D, report):
+    importlib.reload(_mod)
+build_fiche = report.build_fiche
 
 st.set_page_config(page_title="Manager Selection Tool", page_icon="📊", layout="wide")
 
