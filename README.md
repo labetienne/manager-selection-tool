@@ -32,6 +32,7 @@ Morningstar via Yahoo Finance, pour situer les gérants du FRR face au marché c
 ```bash
 python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
 .venv/bin/streamlit run app.py
+.venv/bin/python test_analytics.py   # vérifications des calculs (données synthétiques)
 ```
 Les données (Yahoo Finance + FRED) sont mises en cache dans `data/cache.pkl` : l'app tourne hors ligne.
 Bouton « Rafraîchir » dans la barre latérale pour mettre à jour.
@@ -40,6 +41,8 @@ Bouton « Rafraîchir » dans la barre latérale pour mettre à jour.
 - `data.py` — univers de fonds, téléchargement et cache des données
 - `analytics.py` — métriques, régression Newey-West, scoring, simulation de couverture, Black-Scholes
 - `app.py` — interface Streamlit
+- `report.py` — fiche gérant PDF (matplotlib)
+- `test_analytics.py` — 7 vérifications : régression, scoring, couverture, Black-Scholes, backtest options
 
 ## Limites
 ETF/fonds ouverts ≠ mandats dédiés · biais du survivant · ~3 ans d'historique pour les indices ICE ·

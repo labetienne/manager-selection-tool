@@ -126,15 +126,6 @@ with st.sidebar:
     bench = seg["benchmarks"][bench_label]
 
     seg_funds = [t for t, m in D.FUNDS.items() if m["segment"] == seg_name and t != bench]
-    off_style = [t for t in seg_funds if D.FUNDS[t].get("off_style")]
-    include_off = False
-    if off_style:
-        include_off = st.checkbox(
-            "Inclure les fonds hors style",
-            value=False,
-            help="Fonds dont la stratégie ne correspond pas au mandat : "
-            + " ; ".join(f"{short(t)} ({D.FUNDS[t]['off_style']})" for t in off_style),
-        )
     styles = ["Gérant FRR", "Candidat", "Alternative passive"]
     univ = st.segmented_control(
         "Univers", styles, selection_mode="multi", default=styles, key=f"univ_{seg_name}",
@@ -142,12 +133,12 @@ with st.sidebar:
         help="🏛️ FRR : gérants actuels des mandats du FRR. Candidats : autres grands gérants du marché "
              "(données Morningstar). Passif : ETF de référence.",
     ) or styles
-    candidates = [t for t in seg_funds if (include_off or t not in off_style) and D.FUNDS[t]["style"] in univ]
+    candidates = [t for t in seg_funds if D.FUNDS[t]["style"] in univ]
     counts = {s_: sum(D.FUNDS[t]["style"] == s_ for t in candidates) for s_ in styles}
     with st.expander(f"Affiner la sélection ({len(candidates)} fonds)"):
         selected = st.multiselect(
             "Fonds analysés", candidates, default=candidates, key=f"sel_{seg_name}_{'_'.join(univ)}",
-            format_func=lambda t: ("🏛️ " if D.FUNDS[t]["style"] == "Gérant FRR" else "") + short(t),
+            format_func=tag,
         )
     st.caption(f"{counts['Gérant FRR']} gérants FRR · {counts['Candidat']} candidats · {counts['Alternative passive']} passifs")
 
@@ -182,7 +173,7 @@ b = R[bench]
 
 
 @st.cache_data(show_spinner=False)
-def segment_table(seg_name, bench, start, selected, refresh_token):
+def segment_table(seg_name, bench, start, selected, data_version):
     rows, regs = {}, {}
     for t in selected:
         if R[t].dropna().shape[0] < 26:
@@ -200,13 +191,14 @@ def segment_table(seg_name, bench, start, selected, refresh_token):
     return pd.DataFrame(rows).T.astype(float), regs
 
 
-table, regs = segment_table(seg_name, bench, start, tuple(selected), st.session_state.refresh)
+DATA_VERSION = (st.session_state.refresh, _cache_v)  # clé de cache des calculs dérivés
+table, regs = segment_table(seg_name, bench, start, tuple(selected), DATA_VERSION)
 if table.empty:
     st.error("Historique insuffisant sur la période choisie.")
     st.stop()
 
 @st.cache_data(show_spinner="Génération de la fiche PDF…")
-def fiche_pdf(f, seg_name, bench, start, refresh_token, badge, why, level, synthesis):
+def fiche_pdf(f, seg_name, bench, start, data_version, badge, why, level, synthesis):
     """Fiche gérant PDF, mise en cache par gérant / segment / période."""
     return build_fiche(
         ticker=f, meta=D.FUNDS[f], m=table.loc[f], fr=regs[f], pair=R[[f, bench]],
@@ -221,7 +213,7 @@ table["Verdict"] = [verdict(table.loc[t])[0] for t in table.index]
 
 st.title(f"Sélection de gérants — {seg_name}")
 st.caption(
-    f"Benchmark : **{bench_label}** · {len(table)} candidats · rendements hebdomadaires "
+    f"Benchmark : **{bench_label}** · {len(table)} fonds · rendements hebdomadaires "
     f"en {seg['currency']}, total return (dividendes réinvestis), nets de frais"
 )
 
@@ -351,8 +343,10 @@ with tabs[1]:
         f"{'Le fonds bat' if m['Surperf. annualisée'] > 0 else 'Le fonds ne bat pas'} son indice "
         f"({fmt_pct(m['Surperf. annualisée'])} par an, net de frais)."
     )
-    if meta.get("mandate"):
+    if meta["style"] == "Gérant FRR":
         st.caption(f"🏛️ **Mandat FRR :** {meta['mandate']} · **Fonds utilisé comme proxy :** {meta['name']} ({f}) — {meta['proxy']}.")
+    elif meta["style"] == "Candidat":
+        st.caption(f"Candidat externe (non gérant du FRR) : {meta['name']} ({f}), données Morningstar via Yahoo Finance.")
     else:
         st.caption(f"Alternative passive : {meta['name']} ({f}), sert de point de comparaison.")
 
@@ -383,7 +377,7 @@ with tabs[1]:
     )
     st.info(f"**Synthèse — {meta['short']}** ({meta['style'].lower()}). " + synth_body)
 
-    pdf_bytes = fiche_pdf(f, seg_name, bench, start, st.session_state.refresh, badge, why, level,
+    pdf_bytes = fiche_pdf(f, seg_name, bench, start, DATA_VERSION, badge, why, level,
                           synth_body.replace("**", ""))
     st.download_button(
         "📄 Télécharger la fiche gérant (PDF, 1 page)",
@@ -487,7 +481,7 @@ with tabs[2]:
 
     with st.expander("🎚️ Ajuster les pondérations", expanded=prof == "Personnalisé"):
         wcols = st.columns(len(A.CRITERIA))
-        for col, (key, (lab, higher, w0)) in zip(wcols, A.CRITERIA.items()):
+        for col, (key, (lab, higher, _)) in zip(wcols, A.CRITERIA.items(), strict=True):
             col.slider(lab, 0, 50, step=5, key=f"w_{key}",
                        on_change=lambda: st.session_state.update(profile="Personnalisé"),
                        help=HELP.get(key, "") + (" (plus c'est haut, mieux c'est)" if higher else " (plus c'est bas, mieux c'est)"))
@@ -603,9 +597,9 @@ with tabs[2]:
         robust["Top 3"] = [f"{n} / {len(A.PROFILES)}" for n in in_top3]
         stable = [short(t) for t in robust.index if in_top3[t] == len(A.PROFILES)]
         st.caption(
-            ("✅ " + ", ".join(stable) + f" reste{'nt' if len(stable) > 1 else ''} dans le top 3 quel que soit le profil : "
+            "✅ " + ", ".join(stable) + f" reste{'nt' if len(stable) > 1 else ''} dans le top 3 quel que soit le profil : "
              "choix robuste." if stable else
-             "⚠️ Aucun candidat n'est dans le top 3 pour tous les profils : le classement dépend fortement des pondérations.")
+             "⚠️ Aucun candidat n'est dans le top 3 pour tous les profils : le classement dépend fortement des pondérations."
         )
         robust.index = [tag(t) for t in robust.index]
         st.dataframe(
@@ -661,12 +655,7 @@ with tabs[3]:
 
     # épisodes de dépassement (jours consécutifs hors bande)
     out = hs["deviation"].abs() > band
-    ep_id = (out & ~out.shift(fill_value=False)).cumsum()[out]
-    episodes = (
-        hs.loc[out].assign(ep=ep_id).groupby("ep")
-        .agg(Début=("ratio", lambda x: x.index[0]), Fin=("ratio", lambda x: x.index[-1]),
-             Jours=("ratio", "size"), **{"Écart max": ("deviation", lambda x: x.loc[x.abs().idxmax()])})
-    )
+    episodes = A.breach_episodes(hs["deviation"], band)
 
     # --- message clé -------------------------------------------------------------------
     st.info(
@@ -724,7 +713,7 @@ with tabs[3]:
     if len(episodes):
         with st.expander(f"Journal des dépassements ({len(episodes)} épisodes)"):
             st.dataframe(
-                episodes.sort_values("Début", ascending=False).reset_index(drop=True)
+                episodes.sort_values("Début", ascending=False)
                 .style.format({"Début": "{:%d/%m/%Y}", "Fin": "{:%d/%m/%Y}", "Écart max": "{:+.2%}"}),
                 width="stretch", hide_index=True,
             )
@@ -758,43 +747,9 @@ with tabs[4]:
         q = c[5].slider("Rendement dividende", 0.0, 5.0, 3.0, 0.5, format="%.1f %%") / 100
 
     # --- backtest hebdomadaire sur 1 an ----------------------------------------------
-    weekly = spot_s.resample("W-FRI").last().loc[lambda s: s.index > last - pd.DateOffset(years=1)]
-    rows, pos, cum_pnl, premiums = [], None, 0.0, 0.0
-    for dte in weekly.index:
-        S = spot_s.loc[:dte].iloc[-1]
-        sig = rv.loc[:dte].iloc[-1] + vol_prem
-        r_ = estr.loc[:dte].iloc[-1]
-        event = ""
-        if pos is not None and dte >= pos["expiry"]:
-            payoff = max(pos["K1"] - S, 0) - max(pos["K2"] - S, 0)
-            pnl = (payoff - pos["last_mtm"]) * pos["units"]
-            cum_pnl += pnl
-            rows.append({"Date": dte, "Euro Stoxx 50": S, "Strikes": f"{pos['K1']:.0f} / {pos['K2']:.0f}",
-                         "Valeur (M€)": payoff * pos["units"] / 1e6, "Delta (M€)": 0.0,
-                         "P&L semaine (M€)": pnl / 1e6, "P&L cumulé (M€)": cum_pnl / 1e6,
-                         "Évènement": "Échéance" + (" (indemnisation)" if payoff > 0 else "")})
-            pos = None
-            event = "Renouvellement"
-        if pos is None:
-            units = notional * 1e6 / S
-            g0 = A.put_spread(S, k_long * S, k_short * S, mat_m / 12, r_, q, sig)
-            pos = dict(K1=k_long * S, K2=k_short * S, expiry=dte + pd.DateOffset(months=mat_m),
-                       units=units, last_mtm=g0["price"])
-            premiums += g0["price"] * units
-            rows.append({"Date": dte, "Euro Stoxx 50": S, "Strikes": f"{pos['K1']:.0f} / {pos['K2']:.0f}",
-                         "Valeur (M€)": g0["price"] * units / 1e6, "Delta (M€)": g0["delta"] * units * S / 1e6,
-                         "P&L semaine (M€)": 0.0, "P&L cumulé (M€)": cum_pnl / 1e6,
-                         "Évènement": f"{event or 'Ouverture'} — prime {g0['price'] * units / 1e6:.1f} M€"})
-            continue
-        T = max((pos["expiry"] - dte).days, 0) / 365
-        g = A.put_spread(S, pos["K1"], pos["K2"], T, r_, q, sig)
-        pnl = (g["price"] - pos["last_mtm"]) * pos["units"]
-        cum_pnl += pnl
-        pos["last_mtm"] = g["price"]
-        rows.append({"Date": dte, "Euro Stoxx 50": S, "Strikes": f"{pos['K1']:.0f} / {pos['K2']:.0f}",
-                     "Valeur (M€)": g["price"] * pos["units"] / 1e6, "Delta (M€)": g["delta"] * pos["units"] * S / 1e6,
-                     "P&L semaine (M€)": pnl / 1e6, "P&L cumulé (M€)": cum_pnl / 1e6, "Évènement": ""})
-    rep = pd.DataFrame(rows).set_index("Date")
+    weekly = spot_s.resample("W-FRI").last().loc[lambda s_: s_.index > last - pd.DateOffset(years=1)]
+    rep, pos, premiums = A.put_spread_backtest(spot_s, estr, rv + vol_prem, weekly.index, notional,
+                                               k_long, k_short, mat_m, q)
 
     # --- position courante et prix d'une protection neuve ----------------------------
     S_now, r_now = spot_s.iloc[-1], estr.iloc[-1]

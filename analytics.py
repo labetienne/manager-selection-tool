@@ -266,3 +266,54 @@ def put_spread(S, K_long, K_short, T, r, q, sigma):
     a = bs(S, K_long, T, r, q, sigma, "put")
     b = bs(S, K_short, T, r, q, sigma, "put")
     return {k: a[k] - b[k] for k in a}
+
+
+def breach_episodes(deviation: pd.Series, band: float) -> pd.DataFrame:
+    """Périodes consécutives où |écart au ratio cible| > band."""
+    out = deviation.abs() > band
+    ep_id = (out & ~out.shift(fill_value=False)).cumsum()[out]
+    cols = ["Début", "Fin", "Jours", "Écart max"]
+    if not out.any():
+        return pd.DataFrame(columns=cols)
+    return pd.DataFrame(
+        [(g.index[0], g.index[-1], len(g), g.loc[g.abs().idxmax()]) for _, g in deviation[out].groupby(ep_id)],
+        columns=cols,
+    )
+
+
+def put_spread_backtest(spot: pd.Series, rate: pd.Series, vol: pd.Series, dates, notional: float,
+                        k_long: float, k_short: float, mat_m: int, q: float):
+    """Put spread roulé à échéance, valorisé chaque semaine.
+
+    spot / rate / vol : séries quotidiennes (rate et vol en décimal). Retourne
+    (reporting hebdomadaire en M€, position en vie, total des primes payées en €).
+    """
+    rows, pos, cum, premiums = [], None, 0.0, 0.0
+
+    def row(dte, S, value, delta, pnl, event):
+        return {"Date": dte, "Euro Stoxx 50": S, "Strikes": f"{pos['K1']:.0f} / {pos['K2']:.0f}",
+                "Valeur (M€)": value * pos["units"] / 1e6, "Delta (M€)": delta * pos["units"] * S / 1e6,
+                "P&L semaine (M€)": pnl / 1e6, "P&L cumulé (M€)": cum / 1e6, "Évènement": event}
+
+    for dte in dates:
+        S, r, sig = spot.loc[:dte].iloc[-1], rate.loc[:dte].iloc[-1], vol.loc[:dte].iloc[-1]
+        event = "Ouverture"
+        if pos is not None and dte >= pos["expiry"]:
+            payoff = max(pos["K1"] - S, 0) - max(pos["K2"] - S, 0)
+            pnl = (payoff - pos["last"]) * pos["units"]
+            cum += pnl
+            rows.append(row(dte, S, payoff, 0.0, pnl, "Échéance" + (" (indemnisation)" if payoff > 0 else "")))
+            pos, event = None, "Renouvellement"
+        if pos is None:
+            g = put_spread(S, k_long * S, k_short * S, mat_m / 12, r, q, sig)
+            pos = dict(K1=k_long * S, K2=k_short * S, expiry=dte + pd.DateOffset(months=mat_m),
+                       units=notional * 1e6 / S, last=g["price"])
+            premiums += g["price"] * pos["units"]
+            rows.append(row(dte, S, g["price"], g["delta"], 0.0, f"{event} — prime {g['price'] * pos['units'] / 1e6:.1f} M€"))
+            continue
+        g = put_spread(S, pos["K1"], pos["K2"], max((pos["expiry"] - dte).days, 0) / 365, r, q, sig)
+        pnl = (g["price"] - pos["last"]) * pos["units"]
+        cum += pnl
+        pos["last"] = g["price"]
+        rows.append(row(dte, S, g["price"], g["delta"], pnl, ""))
+    return pd.DataFrame(rows).set_index("Date"), pos, premiums

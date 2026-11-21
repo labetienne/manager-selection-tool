@@ -130,11 +130,11 @@ def build_fiche(
                        "Actions": contrib.iloc[2], "Alpha": fr["alpha_ann"]})
     bottoms = np.concatenate([[0], np.cumsum(parts.values)[:-1]])
     cols = [MUTED if k != "Alpha" else (POS if v >= 0 else NEG) for k, v in parts.items()]
-    cols = [FUND_C if k in ("Crédit", "Taux", "Actions") else c for k, c in zip(parts.index, cols)]
+    cols = [FUND_C if k in ("Crédit", "Taux", "Actions") else c for k, c in zip(parts.index, cols, strict=True)]
     ax2.bar(range(len(parts)), parts.values, bottom=bottoms, color=cols, width=0.65)
     total = parts.sum()
     ax2.bar(len(parts), total, color=INK, width=0.65)
-    for i, (v, b0) in enumerate(zip(list(parts.values) + [total], list(bottoms) + [0])):
+    for i, (v, b0) in enumerate(zip(list(parts.values) + [total], list(bottoms) + [0], strict=True)):
         ax2.text(i, b0 + v + (0.0015 if v >= 0 else -0.0015), _pct(v, 1), ha="center",
                  va="bottom" if v >= 0 else "top", fontsize=6, color=INK)
     ax2.set_xticks(range(len(parts) + 1), list(parts.index) + ["Total"], fontsize=6.5)
