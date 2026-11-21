@@ -31,6 +31,8 @@ Morningstar via Yahoo Finance, pour situer les gérants du FRR face au marché c
 
 Contexte FRR (gouvernance, allocation, overlay, risques) : voir `NOTES_FRR.md`.
 
+**ESG** : classification SFDR (article 6/8/9) de chaque fonds européen, sourcée, dans `data/sfdr.csv` ; utilisée comme critère de scoring et comme filtre « article 8 minimum » (règle de sélection de fonds du FRR).
+
 ## Lancer
 ```bash
 python3 -m venv .venv && .venv/bin/pip install -r requirements.txt

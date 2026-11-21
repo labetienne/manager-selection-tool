@@ -136,23 +136,24 @@ CRITERIA = {
     # clé : (libellé, plus_haut_est_mieux, poids par défaut)
     "Information ratio": ("Information ratio", True, 25),
     "Alpha factoriel": ("Alpha factoriel (net des bêtas)", True, 20),
-    "Sharpe": ("Sharpe", True, 10),
+    "Sharpe": ("Sharpe", True, 0),
     "Max drawdown": ("Max drawdown", True, 10),  # moins négatif = mieux
     "Down capture": ("Down capture", False, 15),
     "% semaines surperf.": ("Régularité (% semaines surperf.)", True, 10),
     "TER": ("Frais (TER)", False, 10),
+    "SFDR": ("Classification SFDR", True, 10),  # 9 > 8 > 6 ; ignoré si non applicable (fonds US)
 }
 
 
 # Profils de pondération prêts à l'emploi (somme = 100)
 PROFILES = {
     "Équilibré": {k: v[2] for k, v in CRITERIA.items()},
-    "Défensif": {"Information ratio": 10, "Alpha factoriel": 10, "Sharpe": 15, "Max drawdown": 25,
-                 "Down capture": 30, "% semaines surperf.": 5, "TER": 5},
-    "Recherche d'alpha": {"Information ratio": 30, "Alpha factoriel": 40, "Sharpe": 5, "Max drawdown": 5,
-                          "Down capture": 5, "% semaines surperf.": 10, "TER": 5},
-    "Coûts maîtrisés": {"Information ratio": 20, "Alpha factoriel": 15, "Sharpe": 10, "Max drawdown": 10,
-                        "Down capture": 10, "% semaines surperf.": 5, "TER": 30},
+    "Défensif": {"Information ratio": 10, "Alpha factoriel": 10, "Sharpe": 5, "Max drawdown": 25,
+                 "Down capture": 30, "% semaines surperf.": 5, "TER": 5, "SFDR": 10},
+    "Recherche d'alpha": {"Information ratio": 30, "Alpha factoriel": 40, "Sharpe": 0, "Max drawdown": 5,
+                          "Down capture": 5, "% semaines surperf.": 10, "TER": 5, "SFDR": 5},
+    "Coûts maîtrisés": {"Information ratio": 20, "Alpha factoriel": 15, "Sharpe": 0, "Max drawdown": 10,
+                        "Down capture": 10, "% semaines surperf.": 5, "TER": 30, "SFDR": 10},
 }
 PROFILE_HELP = {
     "Équilibré": "Pondération par défaut : création de valeur d'abord, risque et frais ensuite.",

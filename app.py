@@ -51,7 +51,7 @@ def fmt_pct(x, d=2):
 def style_metrics(df: pd.DataFrame):
     fmt = {c: "{:.2%}" for c in df.columns if c in PCT_COLS}
     fmt.update({c: "{:.2f}" for c in ["Sharpe", "Sortino", "Information ratio", "Bêta", "Corrélation", "Alpha t-stat", "R²"] if c in df})
-    fmt.update({"TER": "{:.2f} %", "Encours (Md$)": "{:.1f}", "Nb semaines": "{:.0f}", "Score": "{:.0f}"})
+    fmt.update({"TER": "{:.2f} %", "Encours (Md$)": "{:.1f}", "Nb semaines": "{:.0f}", "Score": "{:.0f}", "SFDR": "{:.0f}"})
     df = df.copy()
     if "TER" in df:  # frais souvent indisponibles : affichage texte pour éviter « None »
         df["TER"] = df["TER"].map(lambda v: "–" if pd.isna(v) else fmt_num(v) + " %")
@@ -77,6 +77,9 @@ HELP = {
     "Down capture": "Part des baisses de l'indice subie par le fonds. < 100 % = protège mieux que l'indice quand il baisse.",
     "TER": "Frais annuels totaux du fonds (en % de l'encours).",
     "Encours (Md$)": "Taille du fonds, en milliards.",
+    "SFDR": "Classification européenne du fonds : article 9 (objectif durable), 8 (promeut des caractéristiques "
+            "environnementales ou sociales), 6 (aucune). Le FRR sélectionne ses fonds en article 8 ou 9. "
+            "Relevée dans la documentation du fonds ; non applicable aux fonds américains.",
 }
 
 
@@ -125,6 +128,14 @@ _cache_v = os.path.getmtime(D.CACHE_FILE) if os.path.exists(D.CACHE_FILE) else 0
 data, levels, rets = get_data(st.session_state.refresh, _cache_v)
 fred = data["fred"]
 info = data["info"]
+SFDR = D.load_sfdr()
+
+
+def sfdr_label(t: str) -> str:
+    if t not in SFDR:
+        return "n.a."  # fonds non européen : SFDR non applicable
+    a = SFDR[t]["article"]
+    return f"Art. {a}" if a else "n.d."
 
 # ======================================================================================
 # Barre latérale
@@ -202,6 +213,7 @@ def segment_table(seg_name, bench, start, selected, data_version):
         m["TER"] = info.loc[t, "ter"] if t in info.index else np.nan
         aum = info.loc[t, "aum"] if t in info.index else np.nan
         m["Encours (Md$)"] = aum / 1e9 if pd.notna(aum) else np.nan
+        m["SFDR"] = (SFDR.get(t) or {}).get("article") or np.nan
         rows[t] = m
         regs[t] = fr
     return pd.DataFrame(rows).T.astype(float), regs
@@ -324,10 +336,12 @@ with t_synth:
     st.subheader("Tableau comparatif")
     show_all = st.toggle("Afficher tous les indicateurs", value=False)
     essentials = ["Verdict", "Surperf. annualisée", "Information ratio", "Alpha factoriel",
-                  "Max drawdown", "Down capture", "TER"]
+                  "Max drawdown", "Down capture", "TER"] + (["SFDR"] if seg_name != "HY US" else [])
     extras = ["Rdt annualisé", "Volatilité", "Tracking error", "Alpha t-stat", "Bêta", "Up capture", "Encours (Md$)"]
     cols = essentials + (extras if show_all else [])
     disp = table[cols].sort_values("Alpha factoriel", ascending=False)
+    if "SFDR" in disp:
+        disp["SFDR"] = [sfdr_label(t) for t in disp.index]
     disp.index = [tag(t) for t in disp.index]
 
     def _color(v, good_if_positive=True, pivot=0.0):
@@ -379,6 +393,10 @@ with t_ger:
         st.caption(f"Candidat externe (non gérant du FRR) : {meta['name']} ({f}), données Morningstar via Yahoo Finance.")
     else:
         st.caption(f"Alternative passive : {meta['name']} ({f}), sert de point de comparaison.")
+    if f in SFDR:
+        sf = SFDR[f]
+        st.caption(f"🌱 **SFDR : {sfdr_label(f)}**" + (f" — [source]({sf['source']})" if sf["source"] else "")
+                   + (f" ({sf['note']})" if sf["note"] else ""))
 
     c = st.columns(6)
     c[0].metric("Rdt annualisé", fmt_pct(m["Rdt annualisé"]), fmt_pct(m["Surperf. annualisée"]) + " vs indice", help=HELP["Rdt annualisé"])
@@ -629,7 +647,8 @@ with t_ao:
     tot = sum(weights.values())
     with c2:
         if tot:
-            eff = pd.Series({A.CRITERIA[k][0].split(" (")[0]: v / tot for k, v in weights.items() if v})
+            usable = {k: v for k, v in weights.items() if v and k in table and table[k].notna().any()}
+            eff = pd.Series({A.CRITERIA[k][0].split(" (")[0]: v / sum(usable.values()) for k, v in usable.items()})
             fig = px.bar(eff.sort_values(), orientation="h", height=170, text_auto=".0%")
             fig.update_layout(showlegend=False, margin=dict(t=10, b=0, l=0, r=10), xaxis=dict(visible=False),
                               yaxis_title=None, title=None)
@@ -645,6 +664,10 @@ with t_ao:
         dd_floor = e[1].slider("Pire repli toléré", -20.0, 0.0, -20.0, 0.5, format="%.1f %%") / 100
         aum_min = e[2].slider("Encours minimum (Md)", 0.0, 20.0, 0.0, 0.5,
                               help="Un fonds trop petit expose à un risque de concentration du FRR dans le fonds.")
+        need_sfdr = st.checkbox("Exiger SFDR article 8 ou 9 (règle du FRR pour les fonds)", value=False,
+                                disabled=seg_name == "HY US",
+                                help="Exclut les fonds en article 6 et ceux dont le classement n'a pas été trouvé. "
+                                     "Non applicable aux fonds américains (HY US).")
     reasons = {}
     for t in table.index:
         r = []
@@ -654,6 +677,8 @@ with t_ao:
             r.append(f"repli {fmt_pct(table.loc[t, 'Max drawdown'], 1)}")
         if aum_min > 0 and (pd.isna(table.loc[t, "Encours (Md$)"]) or table.loc[t, "Encours (Md$)"] < aum_min):
             r.append("encours insuffisant")
+        if need_sfdr and not (table.loc[t, "SFDR"] >= 8):
+            r.append(f"SFDR {sfdr_label(t)}")
         if r:
             reasons[t] = ", ".join(r)
     eligible = [t for t in table.index if t not in reasons]
@@ -686,7 +711,8 @@ with t_ao:
             good, bad = strengths(t)
             with pod[i].container(border=True):
                 st.markdown(f"### {medals[i]} {tag(t)}")
-                st.caption(f"{D.FUNDS[t]['name']} · {D.FUNDS[t]['style']} · {table.loc[t, 'Verdict']}")
+                st.caption(f"{D.FUNDS[t]['name']} · {D.FUNDS[t]['style']} · {table.loc[t, 'Verdict']}"
+                           + (f" · SFDR {sfdr_label(t)}" if t in SFDR else ""))
                 st.progress(int(round(scores.loc[t, "Score global"])), text=f"Score {scores.loc[t, 'Score global']:.0f} / 100")
                 st.markdown(
                     f"**Points forts :** {', '.join(good) if good else '—'}  \n"
@@ -1055,6 +1081,9 @@ Crédit Euro et High Yield US, appliqué aux **gérants actuels du FRR**.
   indices actions (S&P 500 / Euro Stoxx 50). Taux courts : SOFR et €STR.
 - Fréquence **hebdomadaire** (vendredi) pour synchroniser les places US et européennes.
 - **Portefeuille FRR** : composition publiée au 30/09/2026 (PDF de 47 pages, extraite ligne à ligne, totaux rapprochés).
+- **ESG (SFDR)** : article 6, 8 ou 9 de chaque fonds européen, relevé à la main dans sa documentation
+  (prospectus, annexe SFDR, factsheet) avec la source, dans `data/sfdr.csv`. 34 fonds en article 8, 1 en article 6,
+  11 non trouvés. Non applicable aux fonds américains. Critère du scoring et filtre éliminatoire « article 8 minimum ».
 - **Overlay** : politique de couverture (90 % / 100 %, limite de 20 %), notionnels des mandats overlay et allocation
   fin 2025 issus du rapport annuel 2025 ; expositions par devise = hypothèses modifiables.
 

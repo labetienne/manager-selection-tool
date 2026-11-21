@@ -267,3 +267,11 @@ def build_levels(data: dict) -> pd.DataFrame:
     for col in ["ICE_HY_US_TR", "ICE_HY_EUR_TR"]:
         px[col] = fred[col]
     return px.sort_index()
+
+
+def load_sfdr() -> dict:
+    """Article SFDR par fonds européen (6, 8, 9 ou None si non trouvé), relevé à la main avec sa source (data/sfdr.csv)."""
+    import csv
+    with open(os.path.join(CACHE_DIR, "sfdr.csv"), encoding="utf-8") as f:
+        return {r["ticker"]: dict(article=int(r["article"]) if r["article"] else None, source=r["source"], note=r["note"])
+                for r in csv.DictReader(f)}
