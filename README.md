@@ -47,6 +47,7 @@ Bouton « Rafraîchir » dans la barre latérale pour mettre à jour.
 - `analytics.py` — métriques, régression Newey-West, scoring, simulation de couverture, Black-Scholes
 - `app.py` — interface Streamlit
 - `report.py` — fiche gérant PDF (matplotlib)
+- Onglet **Actif-passif** : passif Cades (1,45 Md€/an jusqu'en 2033), marge de couverture, sensibilités, stress tests, vue par poche vs allocation 2026, création de valeur des mandats vs coût de la dette (OAT 10 ans)
 - `report_frr.py` — rapport de suivi des 14 gérants FRR (PDF 6 pages, bouton dans la barre latérale)
 - `test_analytics.py` — 7 vérifications : régression, scoring, couverture, Black-Scholes, backtest options
 

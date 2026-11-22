@@ -170,6 +170,7 @@ FRED_SERIES = {
     "SONIA": "IUDSOIA",  # taux court GBP (%)
     "JPY3M": "IR3TIB01JPM156N",  # taux 3 mois JPY (%, mensuel)
     "CHF3M": "IR3TIB01CHM156N",  # taux 3 mois CHF (%, mensuel)
+    "OAT10": "IRLTLT01FRM156N",  # taux OAT 10 ans France (%, mensuel) : coût de la dette française
 }
 
 # Paramétrage de chaque segment d'appel d'offres

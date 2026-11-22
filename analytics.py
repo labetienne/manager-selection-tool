@@ -338,3 +338,72 @@ def verdict(m) -> tuple[str, str, str]:
     if a > 0:
         return "🟡 Valeur ajoutée non démontrée", "alpha positif mais pas assez régulier pour exclure le hasard", "warning"
     return "🟠 Pas de valeur ajoutée", "alpha négatif, mais pas de façon statistiquement certaine", "warning"
+
+
+# ======================================================================================
+# Actif-passif : versements à la Cades
+# ======================================================================================
+# Loi du 7 août 2020 relative à la dette sociale : 1,45 Md€/an versés à la Cades de 2025 à 2033.
+CADES_PAYMENT = 1.45  # Md€
+CADES_LAST_YEAR = 2033
+
+# Portefeuille du FRR par ligne (expositions fin 2025, dérivés inclus — rapport annuel 2025) et hypothèses de
+# sensibilité utilisées pour les stress tests : bêta actions, sensibilité taux, sensibilité spread, part du choc
+# de spread HY subie (IG et dette émergente bougent moins / différemment que le HY).
+FRR_LINES = pd.DataFrame(
+    [
+        # poche, ligne, poids, bêta actions, sensi taux, sensi spread, multiplicateur spread, mandats
+        ("Actions non couvertes", "Actions Europe", 0.165, 1.0, 0, 0, 0, "PMC France (4), PMC Europe (3), zone euro smart beta (6)"),
+        ("Actions non couvertes", "Actions autres pays développés", 0.146, 1.0, 0, 0, 0, "US large (2), US small (2), Japon (3)"),
+        ("Actions non couvertes", "Actions émergentes", 0.062, 1.1, 0, 0, 0, "6 fonds ouverts"),
+        ("Actions non couvertes", "Non coté (private equity)", 0.082, 0.5, 0, 0, 0, "fonds de fonds, Swen / Flexstone (2026)"),
+        ("Actifs de risque intermédiaire", "High Yield euro", 0.129, 0, 3.2, 3.2, 1.0, "5 mandats — AO de renouvellement oct. 2026"),
+        ("Actifs de risque intermédiaire", "High Yield US", 0.086, 0, 3.5, 3.5, 1.0, "4 mandats (2022FRR01)"),
+        ("Actifs de risque intermédiaire", "Dette émergente", 0.070, 0, 6.0, 6.0, 0.8, "9 fonds ouverts"),
+        ("Actifs de risque intermédiaire", "Actions couvertes en options", 0.076, 0.5, 0, 0, 0, "overlay lot 2 (BNP PAM, Amundi)"),
+        ("Actifs de risque intermédiaire", "Non coté (dette privée)", 0.020, 0, 0.5, 2.0, 0.6, "unitranches (Eurazeo, Eiffel, Zencap)"),
+        ("Actifs de couverture", "Crédit euro IG", 0.055, 0, 4.5, 4.5, 0.4, "5 mandats"),
+        ("Actifs de couverture", "OAT 10 ans", 0.024, 0, 8.5, 0, 0, "mandat dédié"),
+        ("Actifs de couverture", "Adossement OAT", 0.074, 0, 4.0, 0, 0, "2 mandats d'adossement au passif"),
+        ("Actifs de couverture", "Non coté (infrastructures, immobilier)", 0.032, 0.2, 2.0, 0, 0, "fonds non cotés"),
+        ("Actifs de couverture", "Liquidités (net des dérivés)", -0.019, 0, 0, 0, 0, "trésorerie"),
+    ],
+    columns=["Poche", "Ligne", "Poids", "Bêta actions", "Sensi taux", "Sensi spread", "Mult. spread", "Gestion"],
+)
+
+# Allocation stratégique 2026 par poche (conseil de surveillance du 4/6/2026)
+FRR_TARGET_2026 = {"Actions non couvertes": 0.46, "Actifs de risque intermédiaire": 0.36, "Actifs de couverture": 0.18}
+
+
+def cades_flows(year0: int, amount: float = CADES_PAYMENT, last_year: int = CADES_LAST_YEAR,
+                after: float = 0.0, after_until: int = 2040) -> pd.Series:
+    """Échéancier du passif en Md€, indexé par l'année de versement (versements de year0+1 à last_year,
+    puis `after` Md€/an jusqu'à after_until si l'on retient l'hypothèse d'un horizon prolongé)."""
+    years = range(year0 + 1, (after_until if after else last_year) + 1)
+    return pd.Series([amount if y <= last_year else after for y in years], index=list(years), dtype=float)
+
+
+def liability_pv(flows: pd.Series, year0: int, rate: float) -> tuple[float, float]:
+    """Valeur actuelle (Md€) et sensibilité taux (duration modifiée) d'un échéancier annuel.
+
+    Convention : versement en milieu d'année (t = année − year0 − 0,5), date de calcul au 31/12 de year0."""
+    t = np.asarray(flows.index) - year0 - 0.5
+    df = (1 + rate) ** -t.astype(float)
+    pv = float((flows.values * df).sum())
+    duration = float((t * flows.values * df).sum() / pv / (1 + rate)) if pv else 0.0
+    return pv, duration
+
+
+def stress_test(lines: pd.DataFrame, assets: float, eq: float, spread_bp: float, rate_bp: float,
+                liab_pv: float, liab_dur: float) -> tuple[pd.DataFrame, float, float]:
+    """Impact d'un choc (actions en %, spread HY et taux en pb) sur chaque ligne d'actif et sur le passif.
+
+    Retourne (impact par ligne en Md€, variation totale de l'actif, variation du passif)."""
+    out = lines.copy()
+    out["Montant (Md€)"] = out["Poids"] * assets
+    ret = (out["Bêta actions"] * eq - out["Sensi taux"] * rate_bp / 1e4
+           - out["Sensi spread"] * out["Mult. spread"] * spread_bp / 1e4)
+    out["Choc (%)"] = ret
+    out["Impact (Md€)"] = out["Montant (Md€)"] * ret
+    d_liab = -liab_dur * rate_bp / 1e4 * liab_pv
+    return out, float(out["Impact (Md€)"].sum()), d_liab

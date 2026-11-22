@@ -69,6 +69,20 @@ def test_put_spread_backtest_pnl_adds_up():
     assert (rep["Valeur (M€)"] <= (0.95 - 0.85) * 1000 + 1e-6).all()  # jamais plus que l'indemnisation max
 
 
+def test_liability_pv_and_stress():
+    flows = A.cades_flows(2025)
+    assert list(flows.index) == list(range(2026, 2034)) and flows.sum() == 8 * A.CADES_PAYMENT
+    pv0, dur0 = A.liability_pv(flows, 2025, 0.0)
+    assert abs(pv0 - flows.sum()) < 1e-9 and abs(dur0 - 4.0) < 1e-9  # durée moyenne des 8 versements
+    pv, dur = A.liability_pv(flows, 2025, 0.03)
+    assert pv < pv0 and abs((A.liability_pv(flows, 2025, 0.0301)[0] - pv) / pv + dur * 1e-4) < 1e-5
+    assert abs(A.FRR_LINES["Poids"].sum() - 1) < 0.01
+    tab, d_a, d_l = A.stress_test(A.FRR_LINES, 20.0, -0.2, 0, 0, pv, dur)
+    assert d_a < 0 and d_l == 0 and abs(tab["Impact (Md€)"].sum() - d_a) < 1e-12
+    _, d_a, d_l = A.stress_test(A.FRR_LINES, 20.0, 0, 0, 100, pv, dur)
+    assert d_a < 0 and d_l < 0  # hausse des taux : l'actif et le passif baissent
+
+
 if __name__ == "__main__":
     for name, fn in list(globals().items()):
         if name.startswith("test_"):

@@ -105,7 +105,7 @@ verdict = A.verdict
 def get_data(refresh_token: int, cache_version: float):
     """cache_version = date de modification du fichier cache : un nouveau cache invalide la mémoire."""
     d = D.load_data(refresh=refresh_token > 0)
-    if not set(D.FUNDS).issubset(d["prices"].columns):  # cache d'un ancien univers
+    if not (set(D.FUNDS).issubset(d["prices"].columns) and set(D.FRED_SERIES).issubset(d["fred"].columns)):  # ancien cache
         d = D.load_data(refresh=True)
     levels = D.build_levels(d)
     rets = A.weekly_returns(levels)
@@ -263,13 +263,13 @@ with st.expander("ℹ️ À quoi sert cet outil ? — mode d'emploi en 3 étapes
     )
     s1, s2, s3 = st.columns(3)
     s1.markdown("**① Suivre les mandats**  \nBarre latérale : segment, indice, période. Onglets *Synthèse gérants* et *Gérant* (fiche PDF pour le CSG).")
-    s2.markdown("**② Suivre le portefeuille et l'overlay**  \nOnglets *Portefeuille FRR* (titres détenus), *Overlay change* (couverture par devise) et *Overlay dérivés* (options, futures).")
+    s2.markdown("**② Suivre le portefeuille et l'overlay**  \nOnglets *Portefeuille FRR* (titres détenus), *Actif-passif* (passif Cades, stress tests, création de valeur), *Overlay change* (couverture par devise) et *Overlay dérivés* (options, futures).")
     s3.markdown("**③ Préparer un appel d'offres**  \nOnglet *Appel d'offres* : pondérez vos critères, obtenez une short-list et exportez-la en Excel.")
     st.caption("Survolez les ⓘ et les en-têtes de colonnes pour les définitions ; glossaire dans la barre latérale. "
                "Chiffres FRR : rapport annuel 2025 et publications de fondsdereserve.fr.")
 
-t_synth, t_ger, t_ptf, t_fx, t_der, t_ao, t_meth = st.tabs(
-    ["🏁 Synthèse gérants", "🔍 Gérant", "🏛️ Portefeuille FRR", "💱 Overlay change", "🛡️ Overlay dérivés", "🏆 Appel d'offres", "📘 Méthode"])
+t_synth, t_ger, t_ptf, t_alm, t_fx, t_der, t_ao, t_meth = st.tabs(
+    ["🏁 Synthèse gérants", "🔍 Gérant", "🏛️ Portefeuille FRR", "🏦 Actif-passif", "💱 Overlay change", "🛡️ Overlay dérivés", "🏆 Appel d'offres", "📘 Méthode"])
 
 # ======================================================================================
 # 1. Vue d'ensemble
@@ -793,6 +793,166 @@ with t_ao:
         st.download_button("📥 Exporter l'analyse (Excel)", buf.getvalue(),
                            file_name=f"appel_offres_{seg_name.replace(' ', '_')}.xlsx",
                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+
+# ======================================================================================
+# 3 bis. Actif-passif : la Cades, la marge de couverture et la création de valeur
+# ======================================================================================
+@st.cache_data(show_spinner=False)
+def value_creation_table(years, assets, data_version):
+    """Par mandat FRR : rendement (en € couvert), indice, coût de la dette française, valeur créée en M€/an."""
+    last = rets.index.max()
+    start_ = last - pd.DateOffset(years=years)
+    idx = rets.index[rets.index > start_]
+    carry = ((fred["SOFR"] - fred["ESTR"]).resample("W-FRI").mean() / 100).reindex(idx).ffill().mean()
+    oat = fred["OAT10"].dropna()
+    debt = oat[oat.index > start_ - pd.DateOffset(months=1)].mean() / 100
+    weight = A.FRR_LINES.set_index("Ligne")["Poids"]
+    seg_weight = {"HY US": weight["High Yield US"], "HY Euro": weight["High Yield euro"], "Crédit Euro IG": weight["Crédit euro IG"]}
+    rows = []
+    for seg_name_, seg_ in D.SEGMENTS.items():
+        bench_ = list(seg_["benchmarks"].values())[0]
+        frr = [t for t, m in D.FUNDS.items() if m["segment"] == seg_name_ and m["style"] == "Gérant FRR"]
+        aum = seg_weight[seg_name_] * assets * 1000 / len(frr)  # ponytail: encours réparti à parts égales entre mandats
+        hedge = carry if seg_["currency"] == "USD" else 0.0  # coût de couverture USD → EUR ≈ SOFR − €STR
+        rb = A.ann_return(rets.loc[idx, bench_].dropna()) - hedge
+        for t in frr:
+            r = A.ann_return(rets.loc[idx, t].dropna()) - hedge
+            rows.append({"Gérant": short(t), "Segment": seg_name_, "Encours estimé (M€)": aum,
+                         "Rdt annualisé (€)": r, "Indice (€)": rb, "Surperf.": r - rb,
+                         "Valeur ajoutée vs indice (M€/an)": aum * (r - rb),
+                         "Création de valeur vs dette (M€/an)": aum * (r - debt)})
+    return pd.DataFrame(rows), debt, carry
+
+
+with t_alm:
+    st.markdown(
+        "**Pourquoi le FRR investit ainsi.** Depuis la réforme de 2010, le FRR ne reçoit plus de ressources : il **verse "
+        "chaque année à la Cades** (Caisse d'amortissement de la dette sociale) de quoi rembourser la dette sociale — "
+        "2,1 Md€/an de 2011 à 2024, puis **1,45 Md€/an de 2025 à 2033** (loi du 7 août 2020). Ce **passif** est certain, "
+        "daté et en euros : les **actifs de couverture** le sécurisent, les **actifs de performance** doivent battre le "
+        "**coût de la dette française** (chaque euro versé évite à l'État d'emprunter). L'écart entre l'actif et la valeur "
+        "actuelle des versements est la **marge de couverture du passif** : le capital que le FRR peut exposer au risque."
+    )
+
+    # --- passif et marge de couverture ---------------------------------------------------
+    st.markdown("##### 🏦 Passif Cades et marge de couverture (au 31/12/2025)")
+    oat = fred["OAT10"].dropna()
+    oat_2025, oat_now = oat.asof(pd.Timestamp("2025-12-31")), oat.iloc[-1]
+    c = st.columns(3)
+    assets_bn = c[0].number_input("Actif du FRR (Md€)", 5.0, 50.0, 20.7, 0.1,
+                                  help="20,7 Md€ fin 2025 (rapport annuel 2025).")
+    rate = c[1].number_input("Taux d'actualisation (%)", 0.0, 8.0, round(float(oat_2025), 2), 0.05,
+                             help=f"Coût de la dette française : OAT 10 ans à {fmt_num(oat_2025)} % fin 2025, "
+                                  f"{fmt_num(oat_now)} % en {oat.index[-1]:%m/%Y} (FRED).") / 100
+    after = c[2].toggle("Horizon prolongé après 2033", help="Hypothèse : ≈ 0,5 Md€/an versés à la sphère sociale de 2034 à 2040, "
+                                                            "l'horizon du FRR ayant été prolongé au-delà de 2033.")
+    flows = A.cades_flows(2025, after=0.5 if after else 0.0)
+    pv, l_dur = A.liability_pv(flows, 2025, rate)
+    a_dur = float((A.FRR_LINES["Poids"] * A.FRR_LINES["Sensi taux"]).sum())
+    marge = assets_bn - pv
+    hedge_pocket = A.FRR_LINES.loc[A.FRR_LINES["Poche"] == "Actifs de couverture", "Poids"].sum() * assets_bn
+    k = st.columns(4)
+    k[0].metric("Passif actualisé", f"{fmt_num(pv, 1)} Md€", f"{len(flows)} versements, {fmt_num(flows.sum(), 1)} Md€ nominal",
+                delta_color="off", help="Somme des versements actualisés au taux choisi (versement en milieu d'année).")
+    k[1].metric("Marge de couverture", f"{fmt_num(marge, 1)} Md€", "FRR publié : 10,3 Md€", delta_color="off",
+                help="Actif − valeur actuelle du passif. L'écart avec le chiffre publié vient de la courbe de taux utilisée.")
+    k[2].metric("Actif / passif", f"{fmt_num(assets_bn / pv, 2)}×", help="Actif / passif actualisé.")
+    k[3].metric("Versements sécurisés", f"{fmt_num(hedge_pocket / A.CADES_PAYMENT, 1)} ans",
+                f"{fmt_num(hedge_pocket, 1)} Md€ d'actifs de couverture", delta_color="off",
+                help="Nombre d'années de versements à la Cades que la seule poche de couverture permet de payer.")
+    left, right = st.columns([3, 2])
+    with left:
+        sched = pd.DataFrame({"Versement nominal": flows,
+                              "Valeur actuelle": flows * (1 + rate) ** -(flows.index - 2025 - 0.5)})
+        fig = go.Figure([go.Bar(x=sched.index, y=sched[col], name=col, marker_color=clr)
+                         for col, clr in zip(sched.columns, ["#B4B3A8", "#14305a"], strict=True)])
+        fig.update_layout(title="Échéancier des versements à la Cades (Md€)", barmode="group", height=320,
+                          margin=dict(t=50, b=10), legend=dict(orientation="h", y=-0.15), separators=", ")
+        st.plotly_chart(fig, width="stretch")
+    with right:
+        st.markdown("**Sensibilité aux taux**")
+        st.markdown(
+            f"- Actif : **{fmt_num(a_dur)}** (somme pondérée des lignes ; FRR publié : 2,05)  \n"
+            f"- Passif : **{fmt_num(l_dur)}** (FRR publié : 3,71)  \n"
+            f"- Pour **−100 pb** de taux, le passif augmente de {fmt_num(l_dur / 100 * pv * 1000, 0)} M€ et l'actif de "
+            f"{fmt_num(a_dur / 100 * assets_bn * 1000, 0)} M€ : la marge varie de "
+            f"**{(a_dur * assets_bn - l_dur * pv) * 10:+,.0f} M€**. L'actif, deux fois plus gros que le passif, compense "
+            f"sa sensibilité plus faible ; le décalage se lit surtout sur les actifs de couverture."
+        )
+        st.caption("Le FRR a acheté 500 M€ de futures OAT en 2025 et porte les OAT à 10 % de l'allocation 2026 pour "
+                   "allonger la duration de l'actif et réduire ce décalage.")
+
+    # --- stress tests ---------------------------------------------------------------------
+    st.markdown("##### ⚡ Stress test : impact sur l'actif, le passif et la marge")
+    SCEN = {"Correction actuelle (nov. 2026)": (-10, 80, 50), "Choc d'inflation type 2022": (-18, 250, 250),
+            "Crise de crédit sévère (type 2008)": (-35, 800, -100), "Personnalisé": (-20, 200, 0)}
+    scen = st.segmented_control("Scénario", list(SCEN), default=list(SCEN)[0], key="alm_scen") or list(SCEN)[0]
+    e0, s0, r0 = SCEN[scen]
+    c = st.columns(3)
+    eq = c[0].slider("Actions (%)", -50, 20, e0, 1, key=f"eq_{scen}") / 100
+    spread_bp = c[1].slider("Spreads High Yield (pb)", -200, 1000, s0, 10, key=f"sp_{scen}",
+                            help="Choc appliqué au HY ; l'IG, la dette émergente et la dette privée en subissent une fraction.")
+    rate_bp = c[2].slider("Taux (pb)", -200, 300, r0, 10, key=f"rt_{scen}")
+    st_tab, d_a, d_l = A.stress_test(A.FRR_LINES, assets_bn, eq, spread_bp, rate_bp, pv, l_dur)
+    k = st.columns(3)
+    k[0].metric("Variation de l'actif", f"{fmt_num(d_a, 2)} Md€", f"{fmt_pct(d_a / assets_bn, 1)}", delta_color="off")
+    k[1].metric("Variation du passif", f"{fmt_num(d_l, 2)} Md€", f"{fmt_pct(d_l / pv, 1)}", delta_color="off")
+    new_m = marge + d_a - d_l
+    k[2].metric("Marge de couverture après choc", f"{fmt_num(new_m, 1)} Md€", f"{fmt_num(new_m - marge, 2)} Md€",
+                help="Si la marge devenait négative, l'actif ne suffirait plus à honorer les versements à la Cades.")
+    show = (st_tab.groupby("Poche", sort=False)[["Montant (Md€)", "Impact (Md€)"]].sum()
+            .assign(**{"Choc (%)": lambda x: x["Impact (Md€)"] / x["Montant (Md€)"]}))
+    with st.expander("Détail par ligne et hypothèses de sensibilité"):
+        st.dataframe(st_tab.set_index("Ligne")[["Poche", "Montant (Md€)", "Bêta actions", "Sensi taux", "Sensi spread",
+                                                 "Mult. spread", "Choc (%)", "Impact (Md€)"]]
+                     .style.format({"Montant (Md€)": "{:.2f}", "Bêta actions": "{:.1f}", "Sensi taux": "{:.1f}",
+                                    "Sensi spread": "{:.1f}", "Mult. spread": "{:.1f}", "Choc (%)": "{:+.1%}",
+                                    "Impact (Md€)": "{:+.2f}"}, decimal=",", thousands=" "), width="stretch")
+        st.caption("Hypothèses simplifiées : le non coté reflète partiellement le choc actions (valorisations lissées), les "
+                   "actions couvertes en options en subissent la moitié (put spread), la dette émergente 80 % du choc HY, "
+                   "l'IG 40 %. Change supposé couvert (90 %) ; corrélations non modélisées.")
+    st.dataframe(show.style.format({"Montant (Md€)": "{:.2f}", "Impact (Md€)": "{:+.2f}", "Choc (%)": "{:+.1%}"},
+                                   decimal=",", thousands=" "), width="stretch")
+
+    # --- vue par poche ----------------------------------------------------------------------
+    st.markdown("##### 🧩 Les trois poches : portefeuille, allocation 2026 et mandats")
+    lines = A.FRR_LINES.assign(**{"Montant (Md€)": A.FRR_LINES["Poids"] * assets_bn})
+    in_tool = {"High Yield euro": "✅ HY Euro", "High Yield US": "✅ HY US", "Crédit euro IG": "✅ Crédit Euro IG"}
+    lines["Suivi dans l'outil"] = lines["Ligne"].map(in_tool).fillna("")
+    poche = lines.groupby("Poche", sort=False)["Poids"].sum().to_frame("Fin 2025")
+    poche["Cible 2026"] = pd.Series(A.FRR_TARGET_2026)
+    poche["Écart (pts)"] = (poche["Fin 2025"] - poche["Cible 2026"]) * 100
+    poche["À ajuster via futures (M€)"] = -poche["Écart (pts)"] / 100 * assets_bn * 1000
+    poche["Rôle face au passif"] = ["Battre le coût de la dette à long terme", "Portage (rendement) à risque de perte limité",
+                                    "Sécuriser les versements à la Cades"]
+    st.dataframe(poche.style.format({"Fin 2025": "{:.1%}", "Cible 2026": "{:.1%}", "Écart (pts)": "{:+.1f}",
+                                     "À ajuster via futures (M€)": "{:+,.0f}"}, decimal=",", thousands=" "), width="stretch")
+    st.dataframe(lines.set_index("Ligne")[["Poche", "Poids", "Montant (Md€)", "Gestion", "Suivi dans l'outil"]]
+                 .style.format({"Poids": "{:.1%}", "Montant (Md€)": "{:.2f}"}, decimal=",", thousands=" "), width="stretch")
+    st.caption("Expositions fin 2025, dérivés inclus (rapport annuel 2025) ; allocation stratégique 2026 votée le 4/6/2026 "
+               "(actions couvertes en options 4 → 8 %, OAT 10 %, crédit de qualité −3 pts). Les écarts se comblent par les "
+               "futures du mandat overlay (onglet *Overlay dérivés*).")
+
+    # --- création de valeur vs coût de la dette --------------------------------------------
+    st.markdown("##### 💶 Création de valeur des mandats crédit vs coût de la dette française")
+    st.caption("Indicateur officiel du FRR : **15,6 Md€ de valeur créée depuis 2010** par rapport au coût de la dette "
+               "française, dont **+1,5 Md€ en 2025**. Ici, la même logique appliquée mandat par mandat.")
+    yrs = st.radio("Période", [1, 3], index=1, horizontal=True, format_func=lambda y: f"{y} an{'s' if y > 1 else ''}", key="vc_years")
+    vc, debt, carry = value_creation_table(yrs, assets_bn, DATA_VERSION)
+    k = st.columns(3)
+    k[0].metric("Coût de la dette (OAT 10 ans moyen)", fmt_pct(debt, 2))
+    k[1].metric("Valeur créée vs dette, 14 mandats", f"{fmt_num(vc['Création de valeur vs dette (M€/an)'].sum(), 0)} M€/an")
+    k[2].metric("Valeur ajoutée des gérants vs indices", f"{fmt_num(vc['Valeur ajoutée vs indice (M€/an)'].sum(), 0)} M€/an",
+                help="Partie de la création de valeur due aux choix des gérants (le reste vient du marché du crédit).")
+    st.dataframe(vc.style.format({"Encours estimé (M€)": "{:,.0f}", "Rdt annualisé (€)": "{:.2%}", "Indice (€)": "{:.2%}",
+                                  "Surperf.": "{:+.2%}", "Valeur ajoutée vs indice (M€/an)": "{:+,.1f}",
+                                  "Création de valeur vs dette (M€/an)": "{:+,.1f}"}, decimal=",", thousands=" ")
+                 .background_gradient(subset=["Création de valeur vs dette (M€/an)"], cmap="RdYlGn", vmin=-40, vmax=40),
+                 width="stretch", hide_index=True)
+    st.caption(f"Lecture : création de valeur = encours × (rendement − coût de la dette) ; elle se décompose en **marché** "
+               f"(indice − dette) + **gérant** (surperformance). HY US converti en € couvert en retranchant le coût de "
+               f"couverture SOFR − €STR ({fmt_pct(carry, 2)}/an). Encours estimé : poids du segment fin 2025 réparti à parts "
+               f"égales entre mandats ; fonds proxies, nets de frais.")
 
 # ======================================================================================
 # 4. Overlay change
