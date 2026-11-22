@@ -134,10 +134,13 @@ def sfdr_label(t: str) -> str:
 with st.sidebar:
     st.title("📊 Manager Selection")
     st.caption("Prototype de sélection et de suivi de gérants délégués")
+    EXPERT = st.toggle("🔬 Vue détaillée", value=False,
+                       help="Affiche tous les indicateurs techniques, les réglages et les tableaux détaillés. "
+                            "Désactivée, l'outil ne montre que l'essentiel, expliqué en clair.")
 
     seg_name = st.radio("Segment (appel d'offres)", list(D.SEGMENTS), index=0)
     seg = D.SEGMENTS[seg_name]
-    bench_label = st.selectbox("Benchmark", list(seg["benchmarks"]))
+    bench_label = st.selectbox("Benchmark", list(seg["benchmarks"])) if EXPERT else list(seg["benchmarks"])[0]
     bench = seg["benchmarks"][bench_label]
 
     seg_funds = [t for t, m in D.FUNDS.items() if m["segment"] == seg_name and t != bench]
@@ -150,17 +153,20 @@ with st.sidebar:
     ) or styles
     candidates = [t for t in seg_funds if D.FUNDS[t]["style"] in univ]
     counts = {s_: sum(D.FUNDS[t]["style"] == s_ for t in candidates) for s_ in styles}
-    with st.expander(f"Affiner la sélection ({len(candidates)} fonds)"):
-        selected = st.multiselect(
-            "Fonds analysés", candidates, default=candidates, key=f"sel_{seg_name}_{'_'.join(univ)}",
-            format_func=tag,
-        )
+    selected = candidates
+    if EXPERT:
+        with st.expander(f"Affiner la sélection ({len(candidates)} fonds)"):
+            selected = st.multiselect(
+                "Fonds analysés", candidates, default=candidates, key=f"sel_{seg_name}_{'_'.join(univ)}",
+                format_func=tag,
+            )
     st.caption(f"{counts['Gérant FRR']} gérants FRR · {counts['Candidat']} candidats · {counts['Alternative passive']} "
                f"passif{'s' if counts['Alternative passive'] > 1 else ''}")
 
     first = rets[bench].first_valid_index()
     last = rets.index.max()
-    horizon = st.select_slider("Horizon d'analyse", ["1 an", "2 ans", "3 ans", "5 ans", "Max"], value="3 ans")
+    horizon = (st.select_slider("Horizon d'analyse", ["1 an", "2 ans", "3 ans", "5 ans", "Max"], value="3 ans")
+               if EXPERT else "3 ans")
     years = {"1 an": 1, "2 ans": 2, "3 ans": 3, "5 ans": 5, "Max": 50}[horizon]
     start = max(first, last - pd.DateOffset(years=years))
     st.caption(f"Période : {start:%d/%m/%Y} → {last:%d/%m/%Y}  ·  devise {seg['currency']}")
@@ -244,7 +250,7 @@ def fiche_pdf(f, seg_name, bench, start, data_version, badge, why, level, synthe
 label = lambda t: f"{D.FUNDS[t]['short']} — {D.FUNDS[t]['name']}" if t in D.FUNDS else bench_label
 table["Verdict"] = [verdict(table.loc[t])[0] for t in table.index]
 
-st.title(f"Sélection de gérants — {seg_name}")
+st.title(f"Gérants du FRR : {seg_name}")
 st.caption(
     f"Benchmark : **{bench_label}** · {len(table)} fonds · rendements hebdomadaires "
     f"en {seg['currency']}, total return (dividendes réinvestis), nets de frais"
@@ -262,14 +268,23 @@ with st.expander("ℹ️ Mode d'emploi", expanded=first_visit):
         "gère avec la même stratégie.*"
     )
     s1, s2, s3 = st.columns(3)
-    s1.markdown("**① Suivre les mandats**  \nBarre latérale : segment, indice, période. Onglets *Synthèse gérants* et *Gérant* (fiche PDF pour le CSG).")
-    s2.markdown("**② Suivre le portefeuille et l'overlay**  \nOnglets *Portefeuille FRR* (titres détenus), *Actif-passif* (passif Cades, stress tests, création de valeur), *Overlay change* (couverture par devise) et *Overlay dérivés* (options, futures).")
-    s3.markdown("**③ Préparer un appel d'offres**  \nOnglet *Appel d'offres* : pondérez vos critères, obtenez une short-list et exportez-la en Excel.")
-    st.caption("Survolez les ⓘ et les en-têtes de colonnes pour les définitions ; glossaire dans la barre latérale. "
+    s1.markdown("**① Les gérants font-ils bien leur travail ?**  \nOnglets *Classement des gérants* et *Fiche gérant*. "
+                "Le segment se choisit dans la barre de gauche.")
+    s2.markdown("**② Le FRR est-il bien protégé ?**  \nOnglets *Ce que détient le FRR*, *Cades et passif*, "
+                "*Couverture de change* et *Protection actions*.")
+    s3.markdown("**③ Qui retenir au prochain appel d'offres ?**  \nOnglet *Appel d'offres* : l'outil classe les "
+                "candidats et propose un podium.")
+    st.caption("Chaque onglet commence par un encadré « En clair ». La vue détaillée (barre de gauche) affiche tous les "
+               "chiffres techniques. Survolez les ⓘ pour les définitions. "
                "Chiffres FRR : rapport annuel 2025 et publications de fondsdereserve.fr.")
 
 t_synth, t_ger, t_ptf, t_alm, t_fx, t_der, t_ao, t_meth = st.tabs(
-    ["🏁 Synthèse gérants", "🔍 Gérant", "🏛️ Portefeuille FRR", "🏦 Actif-passif", "💱 Overlay change", "🛡️ Overlay dérivés", "🏆 Appel d'offres", "📘 Méthode"])
+    ["🏁 Classement des gérants", "🔍 Fiche gérant", "🏛️ Ce que détient le FRR", "🏦 Cades et passif",
+     "💱 Couverture de change", "🛡️ Protection actions", "🏆 Appel d'offres", "📘 Méthode"])
+
+
+def en_clair(where, text):
+    where.info("💡 **En clair**  \n" + text)
 
 # ======================================================================================
 # 1. Vue d'ensemble
@@ -279,31 +294,39 @@ with t_synth:
     best_alpha = table["Alpha factoriel"].idxmax()
     n_beat = int((table["Surperf. annualisée"] > 0).sum())
     n_robust = int(table["Verdict"].str.startswith("✅").sum())
-    st.markdown(
-        f"#### En bref : {n_beat} fonds sur {len(table)} "
-        f"bat{'tent' if n_beat > 1 else ''} l'indice, et **{n_robust}** crée{'nt' if n_robust > 1 else ''} "
-        f"de la valeur de façon statistiquement robuste."
-    )
-    ranked = table["Alpha factoriel"].rank(ascending=False, method="min").astype(int)
-    frr_in = [t for t in table.index if D.FUNDS[t]["style"] == "Gérant FRR"]
-    cand_in = [t for t in table.index if D.FUNDS[t]["style"] == "Candidat"]
-    if frr_in and cand_in:
-        best_frr = min(frr_in, key=lambda t: ranked[t])
-        better = [t for t in cand_in if ranked[t] < ranked[best_frr]]
+    if EXPERT:
         st.markdown(
-            f"🏛️ Meilleur gérant actuel du FRR : **{short(best_frr)}**, {'1ᵉʳ' if ranked[best_frr] == 1 else str(ranked[best_frr]) + 'ᵉ'} sur {len(table)} par alpha factoriel. "
-            + (f"{len(better)} candidat{'s' if len(better) > 1 else ''} externe{'s' if len(better) > 1 else ''} "
-               f"{'font' if len(better) > 1 else 'fait'} mieux : "
-               + ", ".join(short(t) for t in sorted(better, key=lambda t: ranked[t])[:4]) + ("…" if len(better) > 4 else "") + "."
-               if better else "Aucun candidat externe ne fait mieux.")
+            f"#### En bref : {n_beat} fonds sur {len(table)} "
+            f"bat{'tent' if n_beat > 1 else ''} l'indice, et **{n_robust}** crée{'nt' if n_robust > 1 else ''} "
+            f"de la valeur de façon statistiquement robuste."
         )
-    c = st.columns(4)
-    c[0].metric("Rendement de l'indice (par an)", fmt_pct(A.ann_return(b.dropna())), help="Rendement annualisé du benchmark sur la période.")
-    c[1].metric("Meilleur information ratio", short(best_ir), f"IR {fmt_num(table.loc[best_ir, 'Information ratio'])}", help=HELP["Information ratio"])
-    c[2].metric("Meilleur alpha factoriel", short(best_alpha), fmt_pct(table.loc[best_alpha, "Alpha factoriel"]), help=HELP["Alpha factoriel"])
-    c[3].metric("Fonds battant l'indice", f"{n_beat} / {len(table)}", help=HELP["Surperf. annualisée"])
+    frr_rank = [t for t in table["Alpha factoriel"].sort_values(ascending=False).index if D.FUNDS[t]["style"] == "Gérant FRR"]
+    en_clair(st, f"Sur {horizon}, **{n_beat} fonds sur {len(table)}** ont fait mieux que leur indice, frais déduits. "
+             + (f"Parmi les gérants du FRR, **{short(frr_rank[0])}** s'en sort le mieux et **{short(frr_rank[-1])}** "
+                "le moins bien. " if len(frr_rank) > 1 else "")
+             + "Dans le tableau, ✅ veut dire que l'avance du gérant est trop régulière pour être due à la chance, "
+               "🟡 qu'il fait mieux sans que ce soit encore prouvé, 🟠 ou ❌ qu'il fait moins bien.")
+    ranked = table["Alpha factoriel"].rank(ascending=False, method="min").astype(int)
+    if EXPERT:
+        frr_in = [t for t in table.index if D.FUNDS[t]["style"] == "Gérant FRR"]
+        cand_in = [t for t in table.index if D.FUNDS[t]["style"] == "Candidat"]
+        if frr_in and cand_in:
+            best_frr = min(frr_in, key=lambda t: ranked[t])
+            better = [t for t in cand_in if ranked[t] < ranked[best_frr]]
+            st.markdown(
+                f"🏛️ Meilleur gérant actuel du FRR : **{short(best_frr)}**, {'1ᵉʳ' if ranked[best_frr] == 1 else str(ranked[best_frr]) + 'ᵉ'} sur {len(table)} par alpha factoriel. "
+                + (f"{len(better)} candidat{'s' if len(better) > 1 else ''} externe{'s' if len(better) > 1 else ''} "
+                   f"{'font' if len(better) > 1 else 'fait'} mieux : "
+                   + ", ".join(short(t) for t in sorted(better, key=lambda t: ranked[t])[:4]) + ("…" if len(better) > 4 else "") + "."
+                   if better else "Aucun candidat externe ne fait mieux.")
+            )
+        c = st.columns(4)
+        c[0].metric("Rendement de l'indice (par an)", fmt_pct(A.ann_return(b.dropna())), help="Rendement annualisé du benchmark sur la période.")
+        c[1].metric("Meilleur information ratio", short(best_ir), f"IR {fmt_num(table.loc[best_ir, 'Information ratio'])}", help=HELP["Information ratio"])
+        c[2].metric("Meilleur alpha factoriel", short(best_alpha), fmt_pct(table.loc[best_alpha, "Alpha factoriel"]), help=HELP["Alpha factoriel"])
+        c[3].metric("Fonds battant l'indice", f"{n_beat} / {len(table)}", help=HELP["Surperf. annualisée"])
 
-    left, right = st.columns([3, 2])
+    left, right = st.columns([3, 2]) if EXPERT else (st.container(), None)
     with left:
         cum = (1 + R[selected + [bench]].fillna(0)).cumprod() * 100
         fig = go.Figure()
@@ -323,25 +346,29 @@ with t_synth:
         fig.add_scatter(x=cum.index, y=cum[bench], name="Benchmark", line=dict(width=3, color="black", dash="dot"))
         fig.update_layout(title="Performance cumulée (base 100)", height=430, margin=dict(t=50, b=10), hovermode="x unified")
         st.plotly_chart(fig, width="stretch")
-    with right:
-        sc = table.reset_index(names="Ticker")
-        sc["Fonds"] = sc["Ticker"].map(short)
-        sc["Style"] = sc["Ticker"].map(lambda t: D.FUNDS[t]["style"])
-        fig = px.scatter(
-            sc, x="Volatilité", y="Rdt annualisé", color="Style", hover_name="Fonds",
-            size=sc["Encours (Md$)"].fillna(1).clip(lower=0.5), size_max=22,
-            title="Rendement / risque (taille = encours)",
-        )
-        bv, br = b.std() * np.sqrt(52), A.ann_return(b.dropna())
-        fig.add_scatter(x=[bv], y=[br], mode="markers+text", text=["Benchmark"], marker=dict(symbol="x", size=14, color="black"), showlegend=False, textposition="bottom center")
-        fig.update_traces(textposition="top center", selector=dict(mode="markers+text"))
-        fig.update_layout(height=430, margin=dict(t=50, b=10), xaxis_tickformat=".1%", yaxis_tickformat=".1%")
-        st.plotly_chart(fig, width="stretch")
+    if EXPERT:
+        with right:
+            sc = table.reset_index(names="Ticker")
+            sc["Fonds"] = sc["Ticker"].map(short)
+            sc["Style"] = sc["Ticker"].map(lambda t: D.FUNDS[t]["style"])
+            fig = px.scatter(
+                sc, x="Volatilité", y="Rdt annualisé", color="Style", hover_name="Fonds",
+                size=sc["Encours (Md$)"].fillna(1).clip(lower=0.5), size_max=22,
+                title="Rendement / risque (taille = encours)",
+            )
+            bv, br = b.std() * np.sqrt(52), A.ann_return(b.dropna())
+            fig.add_scatter(x=[bv], y=[br], mode="markers+text", text=["Benchmark"], marker=dict(symbol="x", size=14, color="black"), showlegend=False, textposition="bottom center")
+            fig.update_traces(textposition="top center", selector=dict(mode="markers+text"))
+            fig.update_layout(height=430, margin=dict(t=50, b=10), xaxis_tickformat=".1%", yaxis_tickformat=".1%")
+            st.plotly_chart(fig, width="stretch")
 
     st.subheader("Tableau comparatif")
-    show_all = st.toggle("Afficher tous les indicateurs", value=False)
-    essentials = ["Verdict", "Surperf. annualisée", "Information ratio", "Alpha factoriel",
-                  "Max drawdown", "Down capture", "TER"] + (["SFDR"] if seg_name != "HY US" else [])
+    show_all = EXPERT and st.toggle("Afficher tous les indicateurs", value=False)
+    essentials = (["Verdict", "Surperf. annualisée", "Information ratio", "Alpha factoriel",
+                   "Max drawdown", "Down capture", "TER"] if EXPERT else
+                  ["Verdict", "Surperf. annualisée", "Alpha factoriel", "Max drawdown"]) + (["SFDR"] if seg_name != "HY US" else [])
+    plain = {} if EXPERT else {"Surperf. annualisée": "Écart avec l'indice (par an)", "Alpha factoriel": "Valeur ajoutée du gérant (par an)",
+                               "Max drawdown": "Pire baisse", "SFDR": "Label ESG (SFDR)"}
     extras = ["Rdt annualisé", "Volatilité", "Tracking error", "Alpha t-stat", "Bêta", "Up capture", "Encours (Md$)"]
     cols = essentials + (extras if show_all else [])
     disp = table[cols].sort_values("Alpha factoriel", ascending=False)
@@ -356,14 +383,15 @@ with t_synth:
         return "color: #1a7f37; font-weight: 600" if good else "color: #c62828"
 
     styler = style_metrics(disp)
-    for col_name in ["Surperf. annualisée", "Information ratio", "Alpha factoriel"]:
+    for col_name in [c_ for c_ in ["Surperf. annualisée", "Information ratio", "Alpha factoriel"] if c_ in cols]:
         styler = styler.map(_color, subset=[col_name])
-    styler = styler.map(lambda v: _color(v, good_if_positive=False, pivot=1.0), subset=["Down capture"])
+    if "Down capture" in cols:
+        styler = styler.map(lambda v: _color(v, good_if_positive=False, pivot=1.0), subset=["Down capture"])
     order = list(table[cols].sort_values("Alpha factoriel", ascending=False).index)
     event = st.dataframe(
         styler,
         width="stretch",
-        column_config={c: st.column_config.Column(c, help=HELP.get(c)) for c in cols},
+        column_config={c: st.column_config.Column(plain.get(c, c), help=HELP.get(c)) for c in cols},
         on_select="rerun", selection_mode="single-row", key=f"synth_{seg_name}",
     )
     if event.selection.rows:
@@ -371,9 +399,9 @@ with t_synth:
         if st.session_state.get("_last_pick") != picked:  # nouveau clic seulement : ne pas écraser un choix manuel
             st.session_state._last_pick = picked
             st.session_state.gerant = picked
-            st.toast(f"{short(picked)} sélectionné : ouvrez l'onglet 🔍 Gérant.")
-    st.caption("Classement par alpha factoriel. Vert = favorable, rouge = défavorable. "
-               "Cliquez sur une ligne pour ouvrir le fonds dans l'onglet Gérant. Les définitions s'affichent au survol des en-têtes.")
+            st.toast(f"{short(picked)} sélectionné : ouvrez l'onglet 🔍 Fiche gérant.")
+    st.caption("Du meilleur au moins bon. Vert = favorable, rouge = défavorable. "
+               "Cliquez sur une ligne pour ouvrir le fonds dans l'onglet Fiche gérant. Les définitions s'affichent au survol des en-têtes.")
 
 # ======================================================================================
 # 2. Analyse gérant
@@ -403,13 +431,21 @@ with t_ger:
         st.caption(f"🌱 SFDR : {sfdr_label(f)}" + (f" ([source]({sf['source']}))" if sf["source"] else "")
                    + (f" ({sf['note']})" if sf["note"] else ""))
 
-    c = st.columns(6)
-    c[0].metric("Rdt annualisé", fmt_pct(m["Rdt annualisé"]), fmt_pct(m["Surperf. annualisée"]) + " vs indice", help=HELP["Rdt annualisé"])
-    c[1].metric("Tracking error", fmt_pct(m["Tracking error"]), help=HELP["Tracking error"])
-    c[2].metric("Information ratio", fmt_num(m["Information ratio"]), help=HELP["Information ratio"])
-    c[3].metric("Alpha factoriel", fmt_pct(m["Alpha factoriel"]), f"t = {fmt_num(m['Alpha t-stat'], 1)}", delta_color="off", help=HELP["Alpha factoriel"] + " " + HELP["Alpha t-stat"])
-    c[4].metric("Max drawdown", fmt_pct(m["Max drawdown"]), fmt_pct(A.drawdown(b.dropna()).min()) + " indice", delta_color="off", help=HELP["Max drawdown"])
-    c[5].metric("Frais (TER)", "–" if pd.isna(m["TER"]) else fmt_num(m["TER"]) + " %", help=HELP["TER"])
+    if not EXPERT:
+        c = st.columns(3)
+        c[0].metric("Rendement par an", fmt_pct(m["Rdt annualisé"]), fmt_pct(m["Surperf. annualisée"]) + " vs indice",
+                    help=HELP["Rdt annualisé"])
+        c[1].metric("Pire baisse", fmt_pct(m["Max drawdown"]), fmt_pct(A.drawdown(b.dropna()).min()) + " pour l'indice",
+                    delta_color="off", help=HELP["Max drawdown"])
+        c[2].metric("Frais", "–" if pd.isna(m["TER"]) else fmt_num(m["TER"]) + " % par an", help=HELP["TER"])
+    if EXPERT:
+        c = st.columns(6)
+        c[0].metric("Rdt annualisé", fmt_pct(m["Rdt annualisé"]), fmt_pct(m["Surperf. annualisée"]) + " vs indice", help=HELP["Rdt annualisé"])
+        c[1].metric("Tracking error", fmt_pct(m["Tracking error"]), help=HELP["Tracking error"])
+        c[2].metric("Information ratio", fmt_num(m["Information ratio"]), help=HELP["Information ratio"])
+        c[3].metric("Alpha factoriel", fmt_pct(m["Alpha factoriel"]), f"t = {fmt_num(m['Alpha t-stat'], 1)}", delta_color="off", help=HELP["Alpha factoriel"] + " " + HELP["Alpha t-stat"])
+        c[4].metric("Max drawdown", fmt_pct(m["Max drawdown"]), fmt_pct(A.drawdown(b.dropna()).min()) + " indice", delta_color="off", help=HELP["Max drawdown"])
+        c[5].metric("Frais (TER)", "–" if pd.isna(m["TER"]) else fmt_num(m["TER"]) + " %", help=HELP["TER"])
 
     # --- commentaire automatique (style note de comité) -----------------------------
     signif = abs(m["Alpha t-stat"]) >= 2
@@ -428,7 +464,21 @@ with t_ger:
         f"({'profil asymétrique favorable' if asym > 0.02 else 'profil défavorable en baisse' if asym < -0.02 else 'profil symétrique'}). "
         f"Le modèle factoriel explique {fr['r2']:.0%} de la variance."
     )
-    st.info(f"**{meta['short']} en résumé** ({meta['style'].lower()}). " + synth_body)
+    verdict_txt = ("un résultat trop régulier pour être dû au hasard. " if signif and m["Alpha factoriel"] > 0 else
+                   "un retard trop régulier pour être dû au hasard. " if signif else
+                   "mais ce résultat peut encore venir du hasard. ")
+    plain_body = (
+        f"{meta['short']} a rapporté **{fmt_pct(m['Rdt annualisé'], 1)} par an**, contre {fmt_pct(m['Rdt benchmark'], 1)} pour "
+        f"son indice : il fait {'mieux' if m['Surperf. annualisée'] > 0 else 'moins bien'} de "
+        f"{fmt_pct(abs(m['Surperf. annualisée']), 1)} par an, frais déduits. Une fois retiré ce qui vient simplement du "
+        f"marché (crédit, taux, actions), il lui reste **{fmt_pct(m['Alpha factoriel'], 1)} par an** de valeur ajoutée, "
+        f"{verdict_txt}Quand le marché baisse, il subit {fmt_pct(m['Down capture'], 0)} de la baisse : il protège "
+        f"{'mieux' if m['Down capture'] < 1 else 'moins bien'} que l'indice."
+    )
+    if EXPERT:
+        st.info(f"**{meta['short']} en résumé** ({meta['style'].lower()}). " + synth_body)
+    else:
+        en_clair(st, plain_body)
 
     pdf_bytes = fiche_pdf(f, seg_name, bench, start, DATA_VERSION, badge, why, level,
                           synth_body.replace("**", ""))
@@ -441,7 +491,7 @@ with t_ger:
         help="Verdict, chiffres clés, graphiques, décomposition du rendement et synthèse : prête à imprimer ou à joindre à une note de comité.",
     )
 
-    left, right = st.columns(2)
+    left, right = st.columns(2) if EXPERT else (st.container(), None)
     with left:
         pair = R[[f, bench]].dropna()
         cum = (1 + pair).cumprod() * 100
@@ -460,49 +510,50 @@ with t_ger:
         fig.update_traces(stackgroup=None, fill="tozeroy")
         fig.update_layout(yaxis_tickformat=".0%", margin=dict(t=50, b=10), legend_title=None)
         st.plotly_chart(fig, width="stretch")
-    with right:
-        roll = A.rolling_excess(R[f], b)
-        fig = go.Figure()
-        fig.add_bar(x=roll.index, y=roll["Surperf. 12M glissante"], name="Surperf. 12M glissante",
-                    marker_color=np.where(roll["Surperf. 12M glissante"] >= 0, "#2a9d8f", "#e76f51"))
-        fig.add_scatter(x=roll.index, y=roll["Tracking error 12M"], name="Tracking error 12M", line=dict(color="black"))
-        fig.update_layout(title="Régularité de la création de valeur", height=380, yaxis_tickformat=".1%",
-                          margin=dict(t=50, b=10), legend=dict(orientation="h", y=-0.15))
-        st.plotly_chart(fig, width="stretch")
+    if EXPERT:
+        with right:
+            roll = A.rolling_excess(R[f], b)
+            fig = go.Figure()
+            fig.add_bar(x=roll.index, y=roll["Surperf. 12M glissante"], name="Surperf. 12M glissante",
+                        marker_color=np.where(roll["Surperf. 12M glissante"] >= 0, "#2a9d8f", "#e76f51"))
+            fig.add_scatter(x=roll.index, y=roll["Tracking error 12M"], name="Tracking error 12M", line=dict(color="black"))
+            fig.update_layout(title="Régularité de la création de valeur", height=380, yaxis_tickformat=".1%",
+                              margin=dict(t=50, b=10), legend=dict(orientation="h", y=-0.15))
+            st.plotly_chart(fig, width="stretch")
 
-        alpha_cum = (fr["residuals"] + fr["alpha_ann"] / 52).cumsum()
-        fig = px.line(alpha_cum, title="Alpha cumulé (rendement non expliqué par les facteurs)", height=300, labels={"value": "", "index": ""})
-        fig.update_layout(yaxis_tickformat=".1%", showlegend=False, margin=dict(t=50, b=10))
-        st.plotly_chart(fig, width="stretch")
+            alpha_cum = (fr["residuals"] + fr["alpha_ann"] / 52).cumsum()
+            fig = px.line(alpha_cum, title="Alpha cumulé (rendement non expliqué par les facteurs)", height=300, labels={"value": "", "index": ""})
+            fig.update_layout(yaxis_tickformat=".1%", showlegend=False, margin=dict(t=50, b=10))
+            st.plotly_chart(fig, width="stretch")
 
-    st.subheader("Décomposition factorielle du rendement excédentaire")
-    l2, r2 = st.columns([2, 3])
-    with l2:
-        tbl = fr["table"].copy()
-        st.dataframe(
-            tbl.style.format({"Coefficient": "{:.3f}", "t-stat": "{:.2f}", "p-value": "{:.3f}",
-                              "Contribution annualisée": "{:.2%}"})
-            .format("{:.2%}", subset=pd.IndexSlice[["Alpha"], ["Coefficient"]]),
-            width="stretch",
-        )
-        st.caption(
-            "Lecture : le coefficient crédit ≈ duration spread (perte en % pour +1 pt de spread) ; "
-            "taux = bêta aux emprunts d'État ; actions = bêta au marché actions. "
-            "Erreurs-types Newey-West (4 retards)."
-        )
-    with r2:
-        contrib = fr["table"]["Contribution annualisée"].drop("Alpha")
-        rf_ann = A.ann_return(rf.dropna())
-        wf = pd.Series({"Taux sans risque": rf_ann, **contrib.to_dict(), "Alpha": fr["alpha_ann"]})
-        wf["Rdt du fonds"] = wf.sum()
-        fig = go.Figure(go.Waterfall(
-            x=wf.index, y=wf.values, measure=["relative"] * (len(wf) - 1) + ["total"],
-            text=[fmt_pct(v) for v in wf.values], textposition="outside",
-            connector=dict(line=dict(color="lightgrey")),
-        ))
-        fig.update_layout(title="D'où vient le rendement ? (contributions annualisées, approx.)",
-                          height=360, yaxis_tickformat=".1%", margin=dict(t=50, b=10))
-        st.plotly_chart(fig, width="stretch")
+        st.subheader("Décomposition factorielle du rendement excédentaire")
+        l2, r2 = st.columns([2, 3])
+        with l2:
+            tbl = fr["table"].copy()
+            st.dataframe(
+                tbl.style.format({"Coefficient": "{:.3f}", "t-stat": "{:.2f}", "p-value": "{:.3f}",
+                                  "Contribution annualisée": "{:.2%}"})
+                .format("{:.2%}", subset=pd.IndexSlice[["Alpha"], ["Coefficient"]]),
+                width="stretch",
+            )
+            st.caption(
+                "Lecture : le coefficient crédit ≈ duration spread (perte en % pour +1 pt de spread) ; "
+                "taux = bêta aux emprunts d'État ; actions = bêta au marché actions. "
+                "Erreurs-types Newey-West (4 retards)."
+            )
+        with r2:
+            contrib = fr["table"]["Contribution annualisée"].drop("Alpha")
+            rf_ann = A.ann_return(rf.dropna())
+            wf = pd.Series({"Taux sans risque": rf_ann, **contrib.to_dict(), "Alpha": fr["alpha_ann"]})
+            wf["Rdt du fonds"] = wf.sum()
+            fig = go.Figure(go.Waterfall(
+                x=wf.index, y=wf.values, measure=["relative"] * (len(wf) - 1) + ["total"],
+                text=[fmt_pct(v) for v in wf.values], textposition="outside",
+                connector=dict(line=dict(color="lightgrey")),
+            ))
+            fig.update_layout(title="D'où vient le rendement ? (contributions annualisées, approx.)",
+                              height=360, yaxis_tickformat=".1%", margin=dict(t=50, b=10))
+            st.plotly_chart(fig, width="stretch")
 
 # ======================================================================================
 # Portefeuille FRR — composition publiée (missions 2 et 4 : analyse et suivi des risques)
@@ -533,6 +584,12 @@ with t_ptf:
         "Risques : la concentration, les échéances et la limite d'emprise de 3 %."
     )
     tot = ptf.groupby("type")["value"].sum() / 1e9
+    _eq = ptf[ptf.type == "Action"].dropna(subset=["emprise"])
+    _mx = _eq.loc[_eq["emprise"].idxmax()]
+    en_clair(st, f"Fin septembre 2026, le FRR détenait directement **{fmt_num(tot.get('Action', 0), 1)} Md€ d'actions** et "
+                 f"**{fmt_num(tot.get('Obligation', 0), 1)} Md€ d'obligations**, plus {fmt_num(tot.get('OPC', 0), 1)} Md€ "
+                 f"placés dans des fonds. La loi lui interdit de posséder plus de 3 % d'une entreprise : sa plus grosse "
+                 f"participation est de {fmt_pct(_mx['emprise'], 1)} ({_mx['name']}), la règle est donc respectée.")
     k = st.columns(4)
     k[0].metric("Actions détenues en direct", f"{fmt_num(tot.get('Action', 0), 2)} Md€", f"{(ptf.type == 'Action').sum()} lignes", delta_color="off")
     k[1].metric("Obligations", f"{fmt_num(tot.get('Obligation', 0), 2)} Md€", f"{(ptf.type == 'Obligation').sum()} lignes", delta_color="off")
@@ -550,26 +607,28 @@ with t_ptf:
     oat = by_issuer.filter(like="FRANCE O").sum()
     corp = by_issuer.drop([i for i in by_issuer.index if "FRANCE O" in i])
     top10 = corp.head(10).sum() / corp.sum()
-    k = st.columns(4)
-    k[0].metric("Émetteurs distincts", fmt_num(bonds["issuer"].nunique(), 0))
-    k[1].metric("Coupon moyen pondéré", fmt_num((bonds["coupon"] * w).sum(), 2) + " %",
-                help="Moyenne des coupons pondérée par la valeur de marché (lignes avec coupon identifié).")
-    k[2].metric("OAT (adossement)", f"{fmt_num(oat / 1e9, 2)} Md€", fmt_pct(oat / bonds["value"].sum(), 0) + " de la poche", delta_color="off")
-    k[3].metric("Top 10 émetteurs privés", fmt_pct(top10, 1), "de la poche crédit", delta_color="off",
-                help="Concentration : part des 10 premiers émetteurs d'entreprises dans les obligations hors OAT.")
-    left, right = st.columns(2)
+    if EXPERT:
+        k = st.columns(4)
+        k[0].metric("Émetteurs distincts", fmt_num(bonds["issuer"].nunique(), 0))
+        k[1].metric("Coupon moyen pondéré", fmt_num((bonds["coupon"] * w).sum(), 2) + " %",
+                    help="Moyenne des coupons pondérée par la valeur de marché (lignes avec coupon identifié).")
+        k[2].metric("OAT (adossement)", f"{fmt_num(oat / 1e9, 2)} Md€", fmt_pct(oat / bonds["value"].sum(), 0) + " de la poche", delta_color="off")
+        k[3].metric("Top 10 émetteurs privés", fmt_pct(top10, 1), "de la poche crédit", delta_color="off",
+                    help="Concentration : part des 10 premiers émetteurs d'entreprises dans les obligations hors OAT.")
+    left, right = st.columns(2) if EXPERT else (st.container(), None)
     with left:
         prof = bonds.groupby("Échéance")["value"].sum().reindex(labels + ["Perpétuelle / n.d."]) / 1e9
         fig = px.bar(prof.rename("Md€"), title="Profil d'échéances (Md€)", height=330, text_auto=".2f")
         fig.update_traces(marker_color="#1f5fa8")
         fig.update_layout(showlegend=False, margin=dict(t=50, b=10), xaxis_title=None, yaxis_title=None)
         st.plotly_chart(fig, width="stretch")
-    with right:
-        top = (corp.head(12) / 1e6).rename("M€").to_frame()
-        top["% poche crédit"] = corp.head(12) / corp.sum()
-        st.markdown("**Premiers émetteurs privés**")
-        st.dataframe(top.style.format({"M€": "{:,.0f}", "% poche crédit": "{:.2%}"}, decimal=",", thousands=" "),
-                     width="stretch", height=330)
+    if EXPERT:
+        with right:
+            top = (corp.head(12) / 1e6).rename("M€").to_frame()
+            top["% poche crédit"] = corp.head(12) / corp.sum()
+            st.markdown("**Premiers émetteurs privés**")
+            st.dataframe(top.style.format({"M€": "{:,.0f}", "% poche crédit": "{:.2%}"}, decimal=",", thousands=" "),
+                         width="stretch", height=330)
 
     # --- actions : limite d'emprise --------------------------------------------------------
     st.markdown("##### Poche actions : limite d'emprise (≤ 3 % du capital d'un émetteur)")
@@ -581,31 +640,33 @@ with t_ptf:
         f"({'dans' if mx['emprise'] < 0.03 else 'au-delà de'} la limite réglementaire de 3 %). "
         f"{len(near)} lignes dépassent 1,5 % : des petites et moyennes capitalisations françaises (mandats PMC France)."
     )
-    left, right = st.columns(2)
-    with left:
-        st.markdown("**Lignes les plus proches de la limite**")
-        st.dataframe(near.head(12).set_index("name")[["value", "emprise"]].rename(columns={"value": "Valeur (M€)", "emprise": "Emprise"})
-                     .assign(**{"Valeur (M€)": lambda x: x["Valeur (M€)"] / 1e6})
-                     .style.format({"Valeur (M€)": "{:,.1f}", "Emprise": "{:.2%}"}, decimal=",", thousands=" "), width="stretch")
-    with right:
-        st.markdown("**Premières lignes en valeur**")
-        big = eq.nlargest(12, "value").set_index("name")[["value"]] / 1e6
-        st.dataframe(big.rename(columns={"value": "Valeur (M€)"}).style.format("{:,.1f}", decimal=",", thousands=" "), width="stretch")
+    if EXPERT:
+        left, right = st.columns(2)
+        with left:
+            st.markdown("**Lignes les plus proches de la limite**")
+            st.dataframe(near.head(12).set_index("name")[["value", "emprise"]].rename(columns={"value": "Valeur (M€)", "emprise": "Emprise"})
+                         .assign(**{"Valeur (M€)": lambda x: x["Valeur (M€)"] / 1e6})
+                         .style.format({"Valeur (M€)": "{:,.1f}", "Emprise": "{:.2%}"}, decimal=",", thousands=" "), width="stretch")
+        with right:
+            st.markdown("**Premières lignes en valeur**")
+            big = eq.nlargest(12, "value").set_index("name")[["value"]] / 1e6
+            st.dataframe(big.rename(columns={"value": "Valeur (M€)"}).style.format("{:,.1f}", decimal=",", thousands=" "), width="stretch")
 
     # --- OPC ---------------------------------------------------------------------------------
-    st.markdown("##### Fonds (OPC)")
-    opc = ptf[ptf.type == "OPC"].copy()
-    opc["Catégorie"] = opc["name"].map(opc_category)
-    left, right = st.columns([2, 3])
-    with left:
-        cat = opc.groupby("Catégorie")["value"].sum().sort_values() / 1e9
-        fig = px.bar(cat, orientation="h", title="OPC par catégorie (Md€)", height=300, text_auto=".2f", labels={"value": "", "Catégorie": ""})
-        fig.update_traces(marker_color="#2a9d8f"); fig.update_layout(showlegend=False, margin=dict(t=50, b=10))
-        st.plotly_chart(fig, width="stretch")
-    with right:
-        st.dataframe(opc.nlargest(10, "value").set_index("name")[["Catégorie", "value"]]
-                     .assign(value=lambda x: x["value"] / 1e6).rename(columns={"value": "Valeur (M€)"})
-                     .style.format({"Valeur (M€)": "{:,.0f}"}, decimal=",", thousands=" "), width="stretch", height=300)
+    if EXPERT:
+        st.markdown("##### Fonds (OPC)")
+        opc = ptf[ptf.type == "OPC"].copy()
+        opc["Catégorie"] = opc["name"].map(opc_category)
+        left, right = st.columns([2, 3])
+        with left:
+            cat = opc.groupby("Catégorie")["value"].sum().sort_values() / 1e9
+            fig = px.bar(cat, orientation="h", title="OPC par catégorie (Md€)", height=300, text_auto=".2f", labels={"value": "", "Catégorie": ""})
+            fig.update_traces(marker_color="#2a9d8f"); fig.update_layout(showlegend=False, margin=dict(t=50, b=10))
+            st.plotly_chart(fig, width="stretch")
+        with right:
+            st.dataframe(opc.nlargest(10, "value").set_index("name")[["Catégorie", "value"]]
+                         .assign(value=lambda x: x["value"] / 1e6).rename(columns={"value": "Valeur (M€)"})
+                         .style.format({"Valeur (M€)": "{:,.0f}"}, decimal=",", thousands=" "), width="stretch", height=300)
     st.caption("Source : « Composition du portefeuille – 30/09/2026 » (fondsdereserve.fr), extraite automatiquement du PDF ; "
                "totaux rapprochés du document. Non disponibles : secteurs, notations, devises par ligne (il faudrait Bloomberg ou "
                "FactSet) ; les titres ne sont pas attribués à un mandat.")
@@ -614,6 +675,10 @@ with t_ptf:
 # 3. Scoring appel d'offres
 # ======================================================================================
 with t_ao:
+    en_clair(st, "Cet onglet prépare un appel d'offres : il donne une note sur 100 à chaque candidat selon ce qui compte "
+                 "le plus pour vous (choisissez un profil), écarte ceux qui ne remplissent pas les conditions, et propose "
+                 "les 3 meilleurs à rencontrer. Ce n'est qu'un premier tri : au FRR, la décision repose surtout sur "
+                 "l'analyse qualitative des équipes.")
     st.markdown(
         "L'onglet pré-classe les candidats pour constituer une short-list à rencontrer en due diligence. Choisissez un "
         "profil de pondération, écartez si besoin les fonds non éligibles, puis lisez le podium.  \n"
@@ -761,24 +826,27 @@ with t_ao:
             st.plotly_chart(fig, width="stretch")
 
         # --- 5. Robustesse : le classement change-t-il selon le profil ? --------------------
-        st.markdown("#### 🔁 Le classement est-il robuste ?")
+        if EXPERT:
+            st.markdown("#### 🔁 Le classement est-il robuste ?")
         robust = pd.DataFrame({name: A.score(elig_table, w)["Rang"] for name, w in A.PROFILES.items()})
         robust = robust.loc[scores.index]
         in_top3 = (robust <= 3).sum(axis=1)
         robust["Top 3"] = [f"{n} / {len(A.PROFILES)}" for n in in_top3]
         stable = [short(t) for t in robust.index if in_top3[t] == len(A.PROFILES)]
-        st.caption(
-            "✅ " + ", ".join(stable) + f" reste{'nt' if len(stable) > 1 else ''} dans le top 3 quel que soit le profil : "
-             "choix robuste." if stable else
-             "⚠️ Aucun candidat n'est dans le top 3 pour tous les profils : le classement dépend fortement des pondérations."
-        )
+        if EXPERT:
+            st.caption(
+                "✅ " + ", ".join(stable) + f" reste{'nt' if len(stable) > 1 else ''} dans le top 3 quel que soit le profil : "
+                 "choix robuste." if stable else
+                 "⚠️ Aucun candidat n'est dans le top 3 pour tous les profils : le classement dépend fortement des pondérations."
+            )
         robust.index = [tag(t) for t in robust.index]
-        st.dataframe(
-            robust.style.map(lambda v: "background-color: #e6f4ea; font-weight: 600" if isinstance(v, (int, np.integer)) and v <= 3 else "",
-                             subset=list(A.PROFILES)),
-            width="stretch",
-        )
-        st.caption("Rang de chaque candidat selon chaque profil de pondération (surligné = top 3).")
+        if EXPERT:
+            st.dataframe(
+                robust.style.map(lambda v: "background-color: #e6f4ea; font-weight: 600" if isinstance(v, (int, np.integer)) and v <= 3 else "",
+                                 subset=list(A.PROFILES)),
+                width="stretch",
+            )
+            st.caption("Rang de chaque candidat selon chaque profil de pondération (surligné = top 3).")
 
         buf = io.BytesIO()
         with pd.ExcelWriter(buf, engine="openpyxl") as xl:
@@ -835,18 +903,21 @@ with t_alm:
         "du passif** : c'est le capital que le FRR peut se permettre d'exposer au risque."
     )
 
+    alm_box = st.container()
     # --- passif et marge de couverture ---------------------------------------------------
     st.markdown("##### Passif Cades et marge de couverture (au 31/12/2025)")
     oat = fred["OAT10"].dropna()
     oat_2025, oat_now = oat.asof(pd.Timestamp("2025-12-31")), oat.iloc[-1]
-    c = st.columns(3)
-    assets_bn = c[0].number_input("Actif du FRR (Md€)", 5.0, 50.0, 20.7, 0.1,
-                                  help="20,7 Md€ fin 2025 (rapport annuel 2025).")
-    rate = c[1].number_input("Taux d'actualisation (%)", 0.0, 8.0, round(float(oat_2025), 2), 0.05,
-                             help=f"Coût de la dette française : OAT 10 ans à {fmt_num(oat_2025)} % fin 2025, "
-                                  f"{fmt_num(oat_now)} % en {oat.index[-1]:%m/%Y} (FRED).") / 100
-    after = c[2].toggle("Horizon prolongé après 2033", help="Hypothèse : ≈ 0,5 Md€/an versés à la sphère sociale de 2034 à 2040, "
-                                                            "l'horizon du FRR ayant été prolongé au-delà de 2033.")
+    assets_bn, rate, after = 20.7, float(oat_2025) / 100, False
+    if EXPERT:
+        c = st.columns(3)
+        assets_bn = c[0].number_input("Actif du FRR (Md€)", 5.0, 50.0, 20.7, 0.1,
+                                      help="20,7 Md€ fin 2025 (rapport annuel 2025).")
+        rate = c[1].number_input("Taux d'actualisation (%)", 0.0, 8.0, round(float(oat_2025), 2), 0.05,
+                                 help=f"Coût de la dette française : OAT 10 ans à {fmt_num(oat_2025)} % fin 2025, "
+                                      f"{fmt_num(oat_now)} % en {oat.index[-1]:%m/%Y} (FRED).") / 100
+        after = c[2].toggle("Horizon prolongé après 2033", help="Hypothèse : ≈ 0,5 Md€/an versés à la sphère sociale de 2034 à 2040, "
+                                                                "l'horizon du FRR ayant été prolongé au-delà de 2033.")
     flows = A.cades_flows(2025, after=0.5 if after else 0.0)
     pv, l_dur = A.liability_pv(flows, 2025, rate)
     a_dur = float((A.FRR_LINES["Poids"] * A.FRR_LINES["Sensi taux"]).sum())
@@ -861,7 +932,7 @@ with t_alm:
     k[3].metric("Versements sécurisés", f"{fmt_num(hedge_pocket / A.CADES_PAYMENT, 1)} ans",
                 f"{fmt_num(hedge_pocket, 1)} Md€ d'actifs de couverture", delta_color="off",
                 help="Nombre d'années de versements à la Cades que la seule poche de couverture permet de payer.")
-    left, right = st.columns([3, 2])
+    left, right = st.columns([3, 2]) if EXPERT else (st.container(), None)
     with left:
         sched = pd.DataFrame({"Versement nominal": flows,
                               "Valeur actuelle": flows * (1 + rate) ** -(flows.index - 2025 - 0.5)})
@@ -870,18 +941,19 @@ with t_alm:
         fig.update_layout(title="Échéancier des versements à la Cades (Md€)", barmode="group", height=320,
                           margin=dict(t=50, b=10), legend=dict(orientation="h", y=-0.15), separators=", ")
         st.plotly_chart(fig, width="stretch")
-    with right:
-        st.markdown("**Sensibilité aux taux**")
-        st.markdown(
-            f"- Actif : **{fmt_num(a_dur)}** (somme pondérée des lignes ; FRR publié : 2,05)  \n"
-            f"- Passif : **{fmt_num(l_dur)}** (FRR publié : 3,71)  \n"
-            f"- Pour une baisse des taux de 100 pb, le passif augmente de {fmt_num(l_dur / 100 * pv * 1000, 0)} M€ et l'actif de "
-            f"{fmt_num(a_dur / 100 * assets_bn * 1000, 0)} M€ : la marge varie de "
-            f"**{(a_dur * assets_bn - l_dur * pv) * 10:+,.0f} M€**. L'actif, deux fois plus gros que le passif, compense "
-            f"sa sensibilité plus faible ; le décalage se lit surtout sur les actifs de couverture."
-        )
-        st.caption("Le FRR a acheté 500 M€ de futures OAT en 2025 et porte les OAT à 10 % de l'allocation 2026 pour "
-                   "allonger la duration de l'actif et réduire ce décalage.")
+    if EXPERT:
+        with right:
+            st.markdown("**Sensibilité aux taux**")
+            st.markdown(
+                f"- Actif : **{fmt_num(a_dur)}** (somme pondérée des lignes ; FRR publié : 2,05)  \n"
+                f"- Passif : **{fmt_num(l_dur)}** (FRR publié : 3,71)  \n"
+                f"- Pour une baisse des taux de 100 pb, le passif augmente de {fmt_num(l_dur / 100 * pv * 1000, 0)} M€ et l'actif de "
+                f"{fmt_num(a_dur / 100 * assets_bn * 1000, 0)} M€ : la marge varie de "
+                f"**{(a_dur * assets_bn - l_dur * pv) * 10:+,.0f} M€**. L'actif, deux fois plus gros que le passif, compense "
+                f"sa sensibilité plus faible ; le décalage se lit surtout sur les actifs de couverture."
+            )
+            st.caption("Le FRR a acheté 500 M€ de futures OAT en 2025 et porte les OAT à 10 % de l'allocation 2026 pour "
+                       "allonger la duration de l'actif et réduire ce décalage.")
 
     # --- stress tests ---------------------------------------------------------------------
     st.markdown("##### Stress test : impact sur l'actif, le passif et la marge")
@@ -889,16 +961,24 @@ with t_alm:
             "Crise de crédit sévère (type 2008)": (-35, 800, -100), "Personnalisé": (-20, 200, 0)}
     scen = st.segmented_control("Scénario", list(SCEN), default=list(SCEN)[0], key="alm_scen") or list(SCEN)[0]
     e0, s0, r0 = SCEN[scen]
-    c = st.columns(3)
-    eq = c[0].slider("Actions (%)", -50, 20, e0, 1, key=f"eq_{scen}") / 100
-    spread_bp = c[1].slider("Spreads High Yield (pb)", -200, 1000, s0, 10, key=f"sp_{scen}",
-                            help="Choc appliqué au HY ; l'IG, la dette émergente et la dette privée en subissent une fraction.")
-    rate_bp = c[2].slider("Taux (pb)", -200, 300, r0, 10, key=f"rt_{scen}")
+    eq, spread_bp, rate_bp = e0 / 100, s0, r0
+    if EXPERT:
+        c = st.columns(3)
+        eq = c[0].slider("Actions (%)", -50, 20, e0, 1, key=f"eq_{scen}") / 100
+        spread_bp = c[1].slider("Spreads High Yield (pb)", -200, 1000, s0, 10, key=f"sp_{scen}",
+                                help="Choc appliqué au HY ; l'IG, la dette émergente et la dette privée en subissent une fraction.")
+        rate_bp = c[2].slider("Taux (pb)", -200, 300, r0, 10, key=f"rt_{scen}")
     st_tab, d_a, d_l = A.stress_test(A.FRR_LINES, assets_bn, eq, spread_bp, rate_bp, pv, l_dur)
     k = st.columns(3)
     k[0].metric("Variation de l'actif", f"{fmt_num(d_a, 2)} Md€", f"{fmt_pct(d_a / assets_bn, 1)}", delta_color="off")
     k[1].metric("Variation du passif", f"{fmt_num(d_l, 2)} Md€", f"{fmt_pct(d_l / pv, 1)}", delta_color="off")
     new_m = marge + d_a - d_l
+    en_clair(alm_box, f"Le FRR doit encore verser **{fmt_num(flows.sum(), 1)} Md€ à la Cades** d'ici "
+                      f"{flows.index[-1]}, soit 1,45 Md€ par an. En euros d'aujourd'hui, cette dette vaut "
+                      f"{fmt_num(pv, 1)} Md€. Le FRR possède {fmt_num(assets_bn, 1)} Md€ : il lui reste donc un **matelas "
+                      f"de {fmt_num(marge, 1)} Md€** au-delà de ce qu'il doit, qu'il peut investir pour faire mieux que "
+                      f"le coût de la dette française. Dans le scénario « {scen} », ce matelas passerait à "
+                      f"{fmt_num(new_m, 1)} Md€.")
     k[2].metric("Marge de couverture après choc", f"{fmt_num(new_m, 1)} Md€", f"{fmt_num(new_m - marge, 2)} Md€",
                 help="Si la marge devenait négative, l'actif ne suffirait plus à honorer les versements à la Cades.")
     show = (st_tab.groupby("Poche", sort=False)[["Montant (Md€)", "Impact (Md€)"]].sum()
@@ -928,11 +1008,12 @@ with t_alm:
                                     "Sécuriser les versements à la Cades"]
     st.dataframe(poche.style.format({"Fin 2025": "{:.1%}", "Cible 2026": "{:.1%}", "Écart (pts)": "{:+.1f}",
                                      "À ajuster via futures (M€)": "{:+,.0f}"}, decimal=",", thousands=" "), width="stretch")
-    st.dataframe(lines.set_index("Ligne")[["Poche", "Poids", "Montant (Md€)", "Gestion", "Suivi dans l'outil"]]
-                 .style.format({"Poids": "{:.1%}", "Montant (Md€)": "{:.2f}"}, decimal=",", thousands=" "), width="stretch")
+    if EXPERT:
+        st.dataframe(lines.set_index("Ligne")[["Poche", "Poids", "Montant (Md€)", "Gestion", "Suivi dans l'outil"]]
+                     .style.format({"Poids": "{:.1%}", "Montant (Md€)": "{:.2f}"}, decimal=",", thousands=" "), width="stretch")
     st.caption("Expositions fin 2025, dérivés inclus (rapport annuel 2025) ; allocation stratégique 2026 votée le 4/6/2026 "
                "(actions couvertes en options 4 → 8 %, OAT 10 %, crédit de qualité −3 pts). Les écarts se comblent par les "
-               "futures du mandat overlay (onglet *Overlay dérivés*).")
+               "futures du mandat overlay (onglet *Protection actions*).")
 
     # --- création de valeur vs coût de la dette --------------------------------------------
     st.markdown("##### Création de valeur des mandats crédit vs coût de la dette française")
@@ -945,11 +1026,12 @@ with t_alm:
     k[1].metric("Valeur créée vs dette, 14 mandats", f"{fmt_num(vc['Création de valeur vs dette (M€/an)'].sum(), 0)} M€/an")
     k[2].metric("Valeur ajoutée des gérants vs indices", f"{fmt_num(vc['Valeur ajoutée vs indice (M€/an)'].sum(), 0)} M€/an",
                 help="Partie de la création de valeur due aux choix des gérants (le reste vient du marché du crédit).")
-    st.dataframe(vc.style.format({"Encours estimé (M€)": "{:,.0f}", "Rdt annualisé (€)": "{:.2%}", "Indice (€)": "{:.2%}",
-                                  "Surperf.": "{:+.2%}", "Valeur ajoutée vs indice (M€/an)": "{:+,.1f}",
-                                  "Création de valeur vs dette (M€/an)": "{:+,.1f}"}, decimal=",", thousands=" ")
-                 .background_gradient(subset=["Création de valeur vs dette (M€/an)"], cmap="RdYlGn", vmin=-40, vmax=40),
-                 width="stretch", hide_index=True)
+    if EXPERT:
+        st.dataframe(vc.style.format({"Encours estimé (M€)": "{:,.0f}", "Rdt annualisé (€)": "{:.2%}", "Indice (€)": "{:.2%}",
+                                      "Surperf.": "{:+.2%}", "Valeur ajoutée vs indice (M€/an)": "{:+,.1f}",
+                                      "Création de valeur vs dette (M€/an)": "{:+,.1f}"}, decimal=",", thousands=" ")
+                     .background_gradient(subset=["Création de valeur vs dette (M€/an)"], cmap="RdYlGn", vmin=-40, vmax=40),
+                     width="stretch", hide_index=True)
     st.caption(f"Lecture : création de valeur = encours × (rendement − coût de la dette) ; elle se décompose en une part due au "
                f"marché (indice − dette) et une part due au gérant (surperformance). HY US converti en € couvert en retranchant le coût de "
                f"couverture SOFR − €STR ({fmt_pct(carry, 2)}/an). Encours estimé : poids du segment fin 2025 réparti à parts "
@@ -965,6 +1047,7 @@ with t_fx:
         "**sous 20 % de l'actif** (16,9 % fin 2025). La couverture est confiée au mandat overlay « gestion passive du risque "
         "de change », tenu par Mercer avec Mesirow, soit environ 4 Md€ de contrats à terme."
     )
+    fx_box = st.container()
     FX = {"USD": ("EURUSD=X", "SOFR", "^GSPC"), "JPY": ("EURJPY=X", "JPY3M", "^N225"),
           "GBP": ("EURGBP=X", "SONIA", "^FTSE"), "CHF": ("EURCHF=X", "CHF3M", "^SSMI")}
     default_book = pd.DataFrame(
@@ -1006,6 +1089,11 @@ with t_fx:
     fxt = pd.DataFrame(rows).set_index("Devise")
     unhedged = fxt["Non couvert (M€)"].sum() + em_unhedged
     share = unhedged / total_assets
+    en_clair(fx_box, f"Quand le dollar ou le yen baisse, les placements du FRR dans ces devises perdent de la valeur en "
+                     f"euros. Le FRR se protège en couvrant 90 % de ces placements. Ce qui reste exposé représente environ "
+                     f"**{fmt_pct(share, 0)} de l'actif**, sous la limite légale de 20 %. "
+                     + ("Toutes les devises sont couvertes au bon niveau." if (fxt["Statut"].str.startswith("✅")).all() else
+                        "Certaines devises s'écartent du niveau visé : l'encadré orange indique quoi acheter ou vendre."))
 
     # --- message clé et limite réglementaire --------------------------------------------
     alerts = fxt[~fxt["Statut"].str.startswith("✅")]
@@ -1027,38 +1115,39 @@ with t_fx:
     else:
         st.success(f"✅ Toutes les devises sont dans la bande de tolérance (±{fmt_pct(band, 1)}) : aucune action requise.")
 
-    st.dataframe(
-        fxt.style.format({"Exposition (M€)": "{:,.0f}", "Ratio cible": "{:.0%}", "Ratio actuel": "{:.1%}", "Écart (pts)": "{:+.1f}",
-                          "À ajuster (M€)": "{:+,.0f}", "Non couvert (M€)": "{:,.0f}", "Gain/coût couverture (M€)": "{:+,.0f}"},
-                         decimal=",", thousands=" "),
-        width="stretch",
-        column_config={"À ajuster (M€)": st.column_config.Column(help="Positif = vendre des devises à terme (sous-couverture)."),
-                       "Gain/coût couverture (M€)": st.column_config.Column(help="Sur la période d'analyse choisie dans la barre latérale.")},
-    )
+    if EXPERT:
+        st.dataframe(
+            fxt.style.format({"Exposition (M€)": "{:,.0f}", "Ratio cible": "{:.0%}", "Ratio actuel": "{:.1%}", "Écart (pts)": "{:+.1f}",
+                              "À ajuster (M€)": "{:+,.0f}", "Non couvert (M€)": "{:,.0f}", "Gain/coût couverture (M€)": "{:+,.0f}"},
+                             decimal=",", thousands=" "),
+            width="stretch",
+            column_config={"À ajuster (M€)": st.column_config.Column(help="Positif = vendre des devises à terme (sous-couverture)."),
+                           "Gain/coût couverture (M€)": st.column_config.Column(help="Sur la période d'analyse choisie dans la barre latérale.")},
+        )
 
-    left, right = st.columns(2)
-    with left:
-        fig = go.Figure()
-        fig.add_hrect(y0=-band * 100, y1=band * 100, fillcolor="green", opacity=0.08, line_width=0)
-        for i, (ccy, hs) in enumerate(sims.items()):
-            fig.add_scatter(x=hs.index, y=hs["deviation"] * 100, name=ccy, line=dict(width=1.5, color=COLORS[i]))
-        fig.add_hline(y=0, line_dash="dot")
-        fig.update_layout(title="Écart au ratio cible par devise (pts, zone verte = tolérance)", height=360,
-                          margin=dict(t=50, b=10), legend=dict(orientation="h", y=-0.15), hovermode="x unified")
-        st.plotly_chart(fig, width="stretch")
-    with right:
-        cost = fxt["Gain/coût couverture (M€)"]
-        fig = go.Figure(go.Bar(x=cost.index, y=cost.values, marker_color=np.where(cost >= 0, "#2a9d8f", "#e76f51"),
-                               text=[f"{fmt_num(v, 0)} M€" for v in cost], textposition="outside"))
-        fig.update_layout(title="Gain / coût de la couverture par devise sur la période (M€)", height=360, margin=dict(t=50, b=10))
-        st.plotly_chart(fig, width="stretch")
+        left, right = st.columns(2)
+        with left:
+            fig = go.Figure()
+            fig.add_hrect(y0=-band * 100, y1=band * 100, fillcolor="green", opacity=0.08, line_width=0)
+            for i, (ccy, hs) in enumerate(sims.items()):
+                fig.add_scatter(x=hs.index, y=hs["deviation"] * 100, name=ccy, line=dict(width=1.5, color=COLORS[i]))
+            fig.add_hline(y=0, line_dash="dot")
+            fig.update_layout(title="Écart au ratio cible par devise (pts, zone verte = tolérance)", height=360,
+                              margin=dict(t=50, b=10), legend=dict(orientation="h", y=-0.15), hovermode="x unified")
+            st.plotly_chart(fig, width="stretch")
+        with right:
+            cost = fxt["Gain/coût couverture (M€)"]
+            fig = go.Figure(go.Bar(x=cost.index, y=cost.values, marker_color=np.where(cost >= 0, "#2a9d8f", "#e76f51"),
+                                   text=[f"{fmt_num(v, 0)} M€" for v in cost], textposition="outside"))
+            fig.update_layout(title="Gain / coût de la couverture par devise sur la période (M€)", height=360, margin=dict(t=50, b=10))
+            st.plotly_chart(fig, width="stretch")
 
-    episodes = pd.concat({ccy: A.breach_episodes(hs["deviation"], band) for ccy, hs in sims.items()}, names=["Devise"])
-    if len(episodes):
-        with st.expander(f"Journal des dépassements ({len(episodes)} épisodes)"):
-            st.dataframe(episodes.reset_index(level=0).sort_values("Début", ascending=False)
-                         .style.format({"Début": "{:%d/%m/%Y}", "Fin": "{:%d/%m/%Y}", "Écart max": "{:+.2%}"}),
-                         width="stretch", hide_index=True)
+        episodes = pd.concat({ccy: A.breach_episodes(hs["deviation"], band) for ccy, hs in sims.items()}, names=["Devise"])
+        if len(episodes):
+            with st.expander(f"Journal des dépassements ({len(episodes)} épisodes)"):
+                st.dataframe(episodes.reset_index(level=0).sort_values("Début", ascending=False)
+                             .style.format({"Début": "{:%d/%m/%Y}", "Fin": "{:%d/%m/%Y}", "Écart max": "{:+.2%}"}),
+                             width="stretch", hide_index=True)
     st.caption("Simulation : actifs en devise représentés par un indice local (S&P 500, Nikkei, FTSE, SMI), forwards valorisés "
                "par différentiel de taux courts (€STR vs SOFR, SONIA, taux 3 mois JPY/CHF), réajustement au dernier jour ouvré "
                "de chaque période. Les expositions par devise sont des hypothèses.")
@@ -1108,15 +1197,12 @@ with t_der:
     prem_pct = new["price"] / S_now
     max_pay = (k_long - k_short) * notional
 
-    st.info(
-        f"#### En bref\n"
-        f"Une protection neuve couvrirait **{notional:,.0f} M€** d'actions contre une baisse de l'indice comprise entre "
-        f"**−{(1 - k_long) * 100:.0f} % et −{(1 - k_short) * 100:.0f} %** "
-        f"(niveaux {k_long * S_now:,.0f} et {k_short * S_now:,.0f}). "
-        f"**Coût : {prem_pct * notional:,.1f} M€** pour {mat_m} mois, soit {prem_pct:.2%} du montant protégé "
-        f"(≈ {prem_pct * 12 / mat_m:.1%} par an). **Indemnisation maximale : {max_pay:,.0f} M€** si l'indice finit "
-        f"sous {k_short * S_now:,.0f}.".replace(",", " ")
-    )
+    en_clair(st, f"Le FRR paie une sorte d'assurance contre la baisse de la bourse. Une protection achetée aujourd'hui "
+                 f"couvrirait **{fmt_num(notional, 0)} M€** d'actions si l'indice baisse de {(1 - k_long) * 100:.0f} % à "
+                 f"{(1 - k_short) * 100:.0f} % (entre {fmt_num(k_long * S_now, 0)} et {fmt_num(k_short * S_now, 0)} points). "
+                 f"Elle coûte **{fmt_num(prem_pct * notional, 1)} M€** pour {mat_m} mois, soit {fmt_pct(prem_pct, 2)} du "
+                 f"montant protégé, et rembourse au maximum **{fmt_num(max_pay, 0)} M€** si l'indice finit sous "
+                 f"{fmt_num(k_short * S_now, 0)}.")
 
     # --- carte « cette semaine » -------------------------------------------------------
     last_row = rep.iloc[-1]
@@ -1174,54 +1260,39 @@ with t_der:
         st.plotly_chart(fig, width="stretch")
 
     # --- reporting hebdomadaire --------------------------------------------------------
-    st.markdown("##### Reporting hebdomadaire")
-    left, right = st.columns([2, 3])
-    with left:
-        fig = go.Figure()
-        fig.add_bar(x=rep.index, y=rep["P&L semaine (M€)"], name="P&L semaine",
-                    marker_color=np.where(rep["P&L semaine (M€)"] >= 0, "#2a9d8f", "#e76f51"))
-        fig.add_scatter(x=rep.index, y=rep["P&L cumulé (M€)"], name="P&L cumulé", line=dict(color="black"))
-        fig.update_layout(title="P&L sur 12 mois (M€)", height=330, margin=dict(t=50, b=10),
-                          legend=dict(orientation="h", y=-0.2))
-        st.plotly_chart(fig, width="stretch")
-    with right:
-        n_show = st.radio("Afficher", ["8 dernières semaines", "12 mois"], horizontal=True, label_visibility="collapsed")
-        view = rep.sort_index(ascending=False)
-        view = view.head(8) if n_show.startswith("8") else view
-        view = view.copy()
-        view.index = view.index.strftime("%d/%m/%Y")
-        st.dataframe(
-            view.style.format({"Indice": "{:,.0f}", "Valeur (M€)": "{:.1f}", "Delta (M€)": "{:+.0f}",
-                               "P&L semaine (M€)": "{:+.1f}", "P&L cumulé (M€)": "{:+.1f}"}, na_rep=""),
-            width="stretch", height="auto" if n_show.startswith("8") else 360,
-        )
-        st.download_button("📥 Exporter le reporting (CSV)", rep.to_csv().encode("utf-8-sig"), "reporting_options.csv", "text/csv")
+    if EXPERT:
+        st.markdown("##### Reporting hebdomadaire")
+        left, right = st.columns([2, 3])
+        with left:
+            fig = go.Figure()
+            fig.add_bar(x=rep.index, y=rep["P&L semaine (M€)"], name="P&L semaine",
+                        marker_color=np.where(rep["P&L semaine (M€)"] >= 0, "#2a9d8f", "#e76f51"))
+            fig.add_scatter(x=rep.index, y=rep["P&L cumulé (M€)"], name="P&L cumulé", line=dict(color="black"))
+            fig.update_layout(title="P&L sur 12 mois (M€)", height=330, margin=dict(t=50, b=10),
+                              legend=dict(orientation="h", y=-0.2))
+            st.plotly_chart(fig, width="stretch")
+        with right:
+            n_show = st.radio("Afficher", ["8 dernières semaines", "12 mois"], horizontal=True, label_visibility="collapsed")
+            view = rep.sort_index(ascending=False)
+            view = view.head(8) if n_show.startswith("8") else view
+            view = view.copy()
+            view.index = view.index.strftime("%d/%m/%Y")
+            st.dataframe(
+                view.style.format({"Indice": "{:,.0f}", "Valeur (M€)": "{:.1f}", "Delta (M€)": "{:+.0f}",
+                                   "P&L semaine (M€)": "{:+.1f}", "P&L cumulé (M€)": "{:+.1f}"}, na_rep=""),
+                width="stretch", height="auto" if n_show.startswith("8") else 360,
+            )
+            st.download_button("📥 Exporter le reporting (CSV)", rep.to_csv().encode("utf-8-sig"), "reporting_options.csv", "text/csv")
 
-    with st.expander("🔬 Grecques de la position en vie (pour spécialistes)"):
-        k = st.columns(4)
-        k[0].metric("Delta", f"{g_now['delta'] * u * S_now / 1e6:,.0f} M€", f"{g_now['delta']:.1%} du notionnel", delta_color="off",
-                    help="Exposition actions équivalente de la protection : variation de valeur pour une variation de l'indice.")
-        k[1].metric("Gamma (1 %)", f"{g_now['gamma'] * u * S_now ** 2 / 100 / 1e6:,.1f} M€",
-                    help="Variation du delta pour un mouvement de 1 % de l'indice.")
-        k[2].metric("Vega (1 pt)", f"{g_now['vega'] * u / 1e6:.2f} M€", help="Variation de valeur pour +1 point de volatilité.")
-        k[3].metric("Theta (1 jour)", f"{g_now['theta'] * u / 1e3:,.0f} k€", help="Perte de valeur liée au passage du temps, par jour.")
-        st.caption("Valorisation Black-Scholes ; volatilité implicite approchée par la volatilité réalisée 1 mois + prime de vol.")
-
-    # --- futures : alignement du portefeuille sur l'allocation ---------------------------
-    st.markdown("##### Exposition tactique : portefeuille vs allocation stratégique")
-    st.caption("Le mandat overlay utilise des futures sur indices (≈ 2 Md€ de notionnels) pour aligner les expositions réelles "
-               "sur celles décidées par la gouvernance, sans toucher aux mandats. Données : rapport annuel 2025 (fin 2025).")
-    alloc = pd.DataFrame(
-        {"Allocation stratégique": [0.46, 0.36, 0.18], "Portefeuille fin 2025": [0.454, 0.380, 0.165]},
-        index=["Actions non couvertes", "Actifs de risque intermédiaire", "Actifs de couverture"])
-    assets_m = st.number_input("Actif total (M€)", 1000, 50000, 20700, 100, key="fut_assets")
-    alloc["Écart (pts)"] = (alloc["Portefeuille fin 2025"] - alloc["Allocation stratégique"]) * 100
-    alloc["Futures pour combler (M€)"] = -alloc["Écart (pts)"] / 100 * assets_m
-    st.dataframe(alloc.style.format({"Allocation stratégique": "{:.1%}", "Portefeuille fin 2025": "{:.1%}",
-                                     "Écart (pts)": "{:+.1f}", "Futures pour combler (M€)": "{:+,.0f}"},
-                                    decimal=",", thousands=" "), width="stretch")
-    st.caption("Lecture : positif = acheter des futures. Le FRR explique la sous-exposition actions de fin 2025 par la hausse de la "
-               "couverture optionnelle décidée en fin d'année ; il a aussi acheté 500 M€ de futures OAT pour allonger la duration.")
+        with st.expander("🔬 Grecques de la position en vie (pour spécialistes)"):
+            k = st.columns(4)
+            k[0].metric("Delta", f"{g_now['delta'] * u * S_now / 1e6:,.0f} M€", f"{g_now['delta']:.1%} du notionnel", delta_color="off",
+                        help="Exposition actions équivalente de la protection : variation de valeur pour une variation de l'indice.")
+            k[1].metric("Gamma (1 %)", f"{g_now['gamma'] * u * S_now ** 2 / 100 / 1e6:,.1f} M€",
+                        help="Variation du delta pour un mouvement de 1 % de l'indice.")
+            k[2].metric("Vega (1 pt)", f"{g_now['vega'] * u / 1e6:.2f} M€", help="Variation de valeur pour +1 point de volatilité.")
+            k[3].metric("Theta (1 jour)", f"{g_now['theta'] * u / 1e3:,.0f} k€", help="Perte de valeur liée au passage du temps, par jour.")
+            st.caption("Valorisation Black-Scholes ; volatilité implicite approchée par la volatilité réalisée 1 mois + prime de vol.")
 
 # ======================================================================================
 # 6. Méthodologie
@@ -1269,7 +1340,7 @@ investment grade, High Yield euro et High Yield US. Il s'appuie sur les gérants
 
 ### Limites
 - Les fonds proxies ne sont pas les mandats du FRR : contraintes ESG, frais négociés et tailles diffèrent. Certains
-  proxies collent mal à la stratégie du mandat ; l'onglet Gérant le signale fonds par fonds.
+  proxies collent mal à la stratégie du mandat ; l'onglet Fiche gérant le signale fonds par fonds.
 - Les candidats forment un échantillon de grands gérants, pas l'univers complet. Un vrai appel d'offres porterait sur
   les sociétés qui ont candidaté.
 - Biais du survivant : l'univers ne contient que des fonds qui existent encore.
