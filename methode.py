@@ -1,153 +1,284 @@
-"""Onglet « Méthode et formules » : indicateurs (sens, formule, lecture), hypothèses, données et limites."""
+"""Onglet « Méthode et formules » : indicateurs (question, formule, calcul en mots, sens), hypothèses, données, limites."""
 
-# Chaque indicateur : (nom, ce que ça mesure, formule LaTeX, comment le lire, où le trouver dans l'outil)
+# Chaque indicateur : (nom, question à laquelle il répond, formule LaTeX, ce que calcule la formule, ce que ça veut dire,
+# où le trouver dans l'outil)
 INDICATORS = {
     "Performance et risque": [
-        ("Rendement hebdomadaire", "La variation du prix du fonds (coupons réinvestis) d'un vendredi à l'autre.",
+        ("Rendement hebdomadaire",
+         "De combien le fonds a-t-il bougé cette semaine ?",
          r"r_t = \frac{P_t}{P_{t-1}} - 1",
-         "Toutes les mesures partent de ces rendements hebdomadaires, nets de frais.", "Partout"),
-        ("Rendement annualisé", "Le gain moyen par an, en tenant compte des intérêts composés.",
+         "On divise le prix du fonds ce vendredi (P_t) par son prix le vendredi précédent (P_{t-1}), puis on retire 1 "
+         "pour obtenir un pourcentage. Le prix intègre les coupons réinvestis et les frais déjà prélevés.",
+         "Un prix qui passe de 100 à 101 donne r = +1 %. Tous les autres indicateurs sont construits à partir de ces "
+         "rendements de la semaine.",
+         "Partout"),
+        ("Rendement annualisé",
+         "Combien le fonds a-t-il rapporté en moyenne chaque année ?",
          r"R = \Big[\prod_{t=1}^{n}(1+r_t)\Big]^{52/n} - 1",
-         "5 % veut dire que 100 € deviennent en moyenne 105 € chaque année.", "Classement, Fiche gérant"),
-        ("Volatilité", "L'amplitude des variations du fonds.",
+         "On multiplie entre eux tous les (1 + rendement de la semaine) : cela donne ce que sont devenus 1 € sur toute la "
+         "période. Puis on ramène ce résultat à une année avec la puissance 52/n (52 semaines par an, n semaines au total).",
+         "5 % par an veut dire que 100 € sont devenus en moyenne 105 € chaque année, intérêts composés compris.",
+         "Classement, Fiche gérant"),
+        ("Volatilité",
+         "Le fonds bouge-t-il beaucoup d'une semaine à l'autre ?",
          r"\sigma = \text{écart-type}(r_t)\times\sqrt{52}",
-         "Plus elle est basse, plus le fonds est régulier. La racine de 52 passe de la semaine à l'année.",
+         "On mesure à quel point les rendements de la semaine s'éloignent de leur moyenne (l'écart-type), puis on "
+         "multiplie par la racine de 52 pour passer d'une semaine à une année.",
+         "C'est la mesure du risque. Une volatilité de 5 % veut dire qu'une année « normale », le rendement s'écarte "
+         "d'environ 5 points de sa moyenne. Plus c'est bas, plus le fonds est régulier.",
          "Fiche gérant (vue détaillée)"),
-        ("Sharpe", "Le rendement obtenu au-delà du taux sans risque, par unité de risque total.",
+        ("Sharpe",
+         "Combien le fonds rapporte-t-il pour chaque unité de risque prise ?",
          r"\text{Sharpe} = \frac{R - R_f}{\sigma}",
-         "Au-dessus de 1, c'est bon. Peu utilisé ici : un gérant délégué se juge par rapport à son indice.",
+         "On prend le rendement du fonds (R), on retire ce qu'on aurait gagné sans aucun risque en laissant l'argent "
+         "placé au jour le jour (R_f, le taux €STR ou SOFR), puis on divise par la volatilité (σ).",
+         "Il dit si le risque pris a été bien payé. Un Sharpe de 1 veut dire 1 % de gain en plus du sans-risque pour 1 % "
+         "de volatilité. Peu utilisé ici : un gérant délégué se juge par rapport à son indice, pas dans l'absolu.",
          "Tableau complet (vue détaillée)"),
-        ("Sortino", "Comme le Sharpe, mais ne compte que la volatilité des semaines négatives.",
+        ("Sortino",
+         "Même question que le Sharpe, en ne comptant que le « mauvais » risque.",
          r"\text{Sortino} = \frac{R - R_f}{\sigma_-}, \quad \sigma_- = \text{écart-type}(r_t \mid r_t<0)\times\sqrt{52}",
-         "Utile quand les hausses et les baisses ne se ressemblent pas.", "Tableau complet (vue détaillée)"),
-        ("Max drawdown (pire baisse)", "La plus forte perte subie entre un sommet et le creux qui suit.",
+         "Même calcul que le Sharpe, mais on divise par la volatilité des seules semaines de baisse (σ₋) au lieu de "
+         "toutes les semaines.",
+         "Un investisseur ne se plaint pas des fortes hausses. Le Sortino ne pénalise donc que les baisses. Il est plus "
+         "élevé que le Sharpe quand le fonds monte plus fort qu'il ne baisse.",
+         "Tableau complet (vue détaillée)"),
+        ("Max drawdown (pire baisse)",
+         "Quelle a été la pire perte qu'un investisseur a pu subir ?",
          r"\text{MDD} = \min_t\Big(\frac{V_t}{\max_{s\le t} V_s} - 1\Big), \quad V_t = \prod_{u\le t}(1+r_u)",
-         "−10 % veut dire qu'au pire moment, un investisseur a perdu 10 % depuis le dernier sommet.",
+         "On suit la valeur de 1 € placé (V_t). Chaque semaine, on compare cette valeur au plus haut atteint avant. Le "
+         "max drawdown est le plus grand écart observé entre un sommet et le creux qui le suit.",
+         "−10 % veut dire qu'au pire moment, quelqu'un entré au plus haut avait perdu 10 %. Ça mesure la douleur "
+         "maximale, ce qu'un comité regarde en premier en période de crise.",
          "Classement, Fiche gérant"),
     ],
     "Gestion active (comparaison à l'indice)": [
-        ("Surperformance", "Ce que le fonds gagne de plus (ou de moins) que son indice.",
-         r"R - R_b", "Positif : le gérant bat son indice, frais déduits.", "Classement, Fiche gérant"),
-        ("Tracking error", "De combien le gérant s'écarte de son indice.",
+        ("Surperformance",
+         "Le gérant fait-il mieux que son indice ?",
+         r"R - R_b",
+         "On retire le rendement annualisé de l'indice (R_b) à celui du fonds (R).",
+         "+1 % veut dire que le gérant a rapporté 1 % de plus par an que l'indice, frais déduits. C'est ce que le FRR "
+         "paie quand il choisit une gestion active plutôt qu'un ETF.",
+         "Classement, Fiche gérant"),
+        ("Tracking error",
+         "De combien le gérant s'éloigne-t-il de son indice ?",
          r"TE = \text{écart-type}(r_t - b_t)\times\sqrt{52}",
-         "1 % : gestion proche de l'indice. Au FRR, chaque mandat a un budget de tracking error.",
+         "Chaque semaine, on calcule l'écart entre le fonds et l'indice (r_t − b_t). On mesure ensuite à quel point cet "
+         "écart varie (écart-type), ramené à l'année.",
+         "C'est le risque pris par rapport à l'indice. 1 % : le gérant colle à l'indice. 5 % : il fait des paris très "
+         "différents. Au FRR, chaque mandat a un budget de tracking error à ne pas dépasser.",
          "Fiche gérant (vue détaillée)"),
-        ("Information ratio", "La surperformance obtenue par unité d'écart à l'indice.",
+        ("Information ratio",
+         "La surperformance vaut-elle le risque pris par rapport à l'indice ?",
          r"IR = \frac{R - R_b}{TE}",
-         "Au-dessus de 0,5 c'est bon, au-dessus de 1 c'est excellent. C'est la mesure clé du talent d'un gérant actif.",
+         "On divise la surperformance (R − R_b) par la tracking error (TE).",
+         "C'est le Sharpe du gérant actif : combien il gagne de plus que l'indice pour chaque point d'écart. Faire +1 % "
+         "avec 1 % de tracking error (IR = 1) vaut mieux que +2 % avec 8 % (IR = 0,25). Au-dessus de 0,5 c'est bon, "
+         "au-dessus de 1 c'est excellent.",
          "Classement (vue détaillée), Appel d'offres"),
-        ("Up / down capture", "La part des hausses et des baisses de l'indice que subit le fonds.",
+        ("Up / down capture",
+         "Le fonds suit-il les hausses et amortit-il les baisses ?",
          r"\text{Up} = \frac{\overline{r_t \mid b_t>0}}{\overline{b_t \mid b_t>0}}, \quad "
          r"\text{Down} = \frac{\overline{r_t \mid b_t<0}}{\overline{b_t \mid b_t<0}}",
-         "Un down capture de 80 % veut dire que le fonds ne subit que 80 % des baisses : il protège.",
+         "On ne garde que les semaines où l'indice monte, et on divise le rendement moyen du fonds par celui de l'indice "
+         "ces semaines-là : c'est l'up capture. Même chose avec les semaines de baisse pour le down capture.",
+         "Down capture de 80 % : quand l'indice perd 1 %, le fonds ne perd que 0,8 %. L'idéal est un up capture élevé et "
+         "un down capture bas : profiter des hausses, amortir les baisses.",
          "Fiche gérant, Appel d'offres"),
-        ("Régularité", "La part des semaines où le fonds fait mieux que son indice.",
-         r"\frac{\#\{t : r_t > b_t\}}{n}", "Au-dessus de 50 %, le gérant gagne plus souvent qu'il ne perd.",
+        ("Régularité",
+         "Le gérant bat-il son indice souvent, ou seulement par à-coups ?",
+         r"\frac{\#\{t : r_t > b_t\}}{n}",
+         "On compte les semaines où le fonds a fait mieux que l'indice, et on divise par le nombre total de semaines.",
+         "55 % veut dire que le gérant gagne plus souvent qu'il ne perd. Un gérant qui surperforme grâce à deux coups de "
+         "chance aura une régularité proche de 50 %.",
          "Appel d'offres"),
-        ("Surperformance sur 12 mois glissants", "La surperformance de l'année écoulée, recalculée chaque semaine.",
+        ("Surperformance sur 12 mois glissants",
+         "Le gérant est-il en train de décrocher ou de se redresser ?",
          r"\prod_{52\ \text{sem.}}(1+r_t) - \prod_{52\ \text{sem.}}(1+b_t)",
-         "Montre si un gérant décroche ou se redresse : c'est le premier signal d'une mise sous surveillance.",
+         "Chaque semaine, on calcule la performance du fonds et celle de l'indice sur les 52 dernières semaines, et on "
+         "fait la différence.",
+         "C'est un film plutôt qu'une photo : on voit si la surperformance tient dans le temps. Un passage durable sous "
+         "zéro est le premier signal d'une mise sous surveillance.",
          "Fiche gérant (vue détaillée), rapport PDF"),
     ],
     "Valeur ajoutée du gérant (alpha)": [
-        ("Alpha de Jensen", "Le rendement non expliqué par le marché, une fois corrigé du bêta.",
+        ("Alpha de Jensen",
+         "Une fois corrigé du risque de marché, le gérant a-t-il apporté quelque chose ?",
          r"r_t - rf_t = \alpha + \beta\,(b_t - rf_t) + \varepsilon_t, \quad \alpha_{\text{an}} = 52\,\alpha",
-         "Un gérant à bêta 1,2 bat mécaniquement son indice quand le marché monte : l'alpha retire cet effet.",
+         "On cherche la droite qui relie le rendement du fonds à celui de l'indice (régression). La pente β dit à quel "
+         "point le fonds amplifie le marché. Le point de départ α est ce que le fonds gagne quand le marché ne fait rien.",
+         "Un gérant à β = 1,2 bat mécaniquement son indice quand le marché monte, sans aucun talent. L'alpha retire cet "
+         "effet : il ne garde que ce qui ne s'explique pas par le marché.",
          "Tableau complet (vue détaillée)"),
-        ("Alpha factoriel", "Ce que le gérant apporte une fois payées ses expositions au crédit, aux taux et aux actions.",
+        ("Alpha factoriel",
+         "Que reste-t-il au gérant une fois retirés tous ses paris de marché ?",
          r"r_t - rf_t = \alpha + \beta_c\,(-\Delta OAS_t) + \beta_\tau\, g_t + \beta_a\, a_t + \varepsilon_t",
-         "En crédit, on peut battre l'indice en prenant plus de risque crédit, plus de duration ou un profil plus "
-         "« actions ». La régression retire ces paris de marché : ce qui reste (α × 52 par an) est la sélection "
-         "d'émetteurs du gérant. ΔOAS = variation du spread, g = rendement des obligations d'État, a = rendement "
-         "des actions.",
+         "Même idée que l'alpha de Jensen, avec trois explications au lieu d'une : le crédit (−ΔOAS, la baisse des "
+         "spreads), les taux (g, le rendement des obligations d'État) et les actions (a). La régression mesure combien "
+         "le fonds dépend de chacun (les β). Ce qui reste, α × 52 par an, est l'alpha factoriel.",
+         "En crédit, on peut battre son indice simplement en prenant plus de risque crédit, plus de duration ou des "
+         "émetteurs plus fragiles. L'alpha factoriel retire ces paris : ce qui reste, c'est la vraie sélection "
+         "d'émetteurs du gérant. C'est l'indicateur central de l'outil.",
          "Classement (« Valeur ajoutée du gérant »), Fiche gérant"),
-        ("Contribution d'un facteur", "La part du rendement venant de chaque exposition de marché.",
+        ("Contribution d'un facteur",
+         "D'où vient le rendement du fonds ?",
          r"\text{contribution}_k = \beta_k \times \overline{\text{facteur}_k} \times 52",
-         "Exemple : sur 6 % par an, 4 % de portage crédit, 1 % de taux et 1 % d'alpha.", "Fiche gérant (vue détaillée)"),
-        ("t-stat et Newey-West", "La fiabilité statistique de l'alpha.",
+         "Pour chaque facteur, on multiplie la sensibilité du fonds (β) par ce que le facteur a rapporté en moyenne, puis "
+         "on passe à l'année.",
+         "On découpe le rendement en morceaux : « sur 6 % par an, 4 % viennent du portage crédit, 1 % des taux et 1 % "
+         "du gérant ». On voit ainsi ce qui est du talent et ce qui est du marché.",
+         "Fiche gérant (vue détaillée)"),
+        ("t-stat et Newey-West",
+         "L'alpha est-il dû au talent ou au hasard ?",
          r"\begin{aligned} t &= \frac{\hat\alpha}{\text{se}_{NW}(\hat\alpha)} \\ "
          r"\widehat{\text{Var}}(\hat\beta) &= (X'X)^{-1}\, \hat S\, (X'X)^{-1} \\ "
          r"\hat S &= \sum_t \varepsilon_t^2 x_t x_t' + \sum_{l=1}^{4}\Big(1-\tfrac{l}{5}\Big)\sum_t \varepsilon_t\varepsilon_{t-l}"
          r"\,(x_t x_{t-l}' + x_{t-l} x_t') \end{aligned}",
-         "Au-delà de |t| = 2, l'alpha n'est probablement pas dû au hasard (seuil de 95 %). Newey-West corrige le fait "
-         "que les rendements crédit d'une semaine ressemblent à ceux de la semaine d'avant.",
+         "On divise l'alpha par son incertitude (son erreur-type). L'erreur-type est calculée avec la méthode de "
+         "Newey-West, qui tient compte du fait que les semaines se ressemblent : la deuxième ligne mélange les écarts "
+         "d'une semaine avec ceux des 4 semaines précédentes.",
+         "Le t répond à : « combien de fois l'alpha est-il plus grand que le bruit ? ». Au-delà de 2, il y a moins de 5 % "
+         "de chances que ce soit de la chance. Sans Newey-West, on surestimerait le t, car les prix des obligations peu "
+         "liquides sont « lissés » d'une semaine à l'autre.",
          "Verdict"),
-        ("Verdict", "Une lecture en une icône de l'alpha factoriel et de son t-stat.",
+        ("Verdict",
+         "En une icône : le gérant crée-t-il de la valeur ?",
          r"\begin{cases}\alpha>0,\ t\ge 2 & ✅\ \text{robuste}\\ \alpha<0,\ t\le -2 & ❌\ \text{destruction}\\ "
          r"|\alpha|<0{,}25\,\% & ⚪\ \text{proche de l'indice}\\ \alpha>0,\ t<2 & 🟡\ \text{non démontré}\\ "
          r"\alpha<0,\ t>-2 & 🟠\ \text{pas de valeur ajoutée}\end{cases}",
-         "0,25 % par an correspond à peu près à des frais de gestion : en dessous, le gérant ne se distingue pas de l'indice.",
+         "On combine le signe de l'alpha factoriel (positif ou négatif) et son t-stat (fiable ou non).",
+         "✅ : le gérant apporte de la valeur, et c'est prouvé. 🟡 : il apporte quelque chose, mais 3 ans ne suffisent pas "
+         "à le prouver. ⚪ : il fait comme l'indice ; 0,25 % par an, c'est à peu près le niveau des frais.",
          "Classement, Fiche gérant, rapport PDF"),
     ],
     "Appel d'offres": [
-        ("Score sur 100", "Une note qui combine les critères selon les pondérations choisies.",
+        ("Score sur 100",
+         "Quel candidat retenir, selon ce qui compte le plus ?",
          r"\text{centile}_k(i) = \frac{\text{rang}_k(i)}{N}\times 100, \quad "
          r"\text{Score}(i) = \frac{\sum_k w_k\,\text{centile}_k(i)}{\sum_k w_k}",
-         "Chaque critère est d'abord transformé en rang (0 à 100) pour pouvoir mélanger des unités différentes. "
-         "Le rang est inversé quand « plus bas = mieux » (frais, down capture). Un critère manquant compte pour 50.",
+         "Pour chaque critère, on classe les N candidats et on transforme le rang en note de 0 à 100 (centile). On fait "
+         "ensuite la moyenne de ces notes, pondérée par l'importance de chaque critère (w).",
+         "On ne peut pas additionner un IR de 0,5, des frais de 0,6 % et un article SFDR : les centiles mettent tout sur "
+         "la même échelle. Un score de 80 veut dire que le candidat est meilleur que 80 % des autres, une fois les "
+         "critères pondérés. Le rang est inversé quand « plus bas = mieux » (frais, down capture).",
          "Appel d'offres"),
     ],
     "Cades et passif": [
-        ("Valeur actuelle du passif", "Ce que valent aujourd'hui les versements futurs à la Cades.",
+        ("Valeur actuelle du passif",
+         "Combien vaut aujourd'hui ce que le FRR doit encore à la Cades ?",
          r"VA = \sum_{k} F\,(1+y)^{-t_k}, \quad F = 1{,}45\ \text{Md€},\ t_k = \text{année}_k - 2025 - 0{,}5",
-         "y est le taux de l'OAT 10 ans. Un euro versé en 2033 vaut moins qu'un euro versé en 2026.", "Cades et passif"),
-        ("Marge de couverture", "Le capital que le FRR possède au-delà de ce qu'il doit.",
+         "Chaque versement futur de 1,45 Md€ est divisé par (1 + taux) autant de fois qu'il y a d'années à attendre, "
+         "puis on additionne. Le taux y est celui de l'OAT 10 ans.",
+         "Un euro versé en 2033 coûte moins qu'un euro versé demain, car on peut le placer d'ici là. Les 11,6 Md€ dus "
+         "valent ainsi environ 10,1 Md€ aujourd'hui.",
+         "Cades et passif"),
+        ("Marge de couverture",
+         "Le FRR a-t-il plus que ce qu'il doit ?",
          r"\text{Marge} = \text{Actif} - VA",
-         "C'est le « matelas » que le FRR peut exposer au risque. Le FRR publie 10,3 Md€ fin 2025.", "Cades et passif"),
-        ("Sensibilité aux taux", "De combien la valeur baisse quand les taux montent de 1 point.",
+         "On retire la valeur actuelle des versements dus (VA) à tout ce que possède le FRR (l'actif).",
+         "C'est le matelas : 10,6 Md€ selon l'outil, 10,3 Md€ publiés par le FRR fin 2025. C'est l'argent que le FRR "
+         "peut exposer au risque pour faire mieux que le coût de la dette. Si la marge tombait à zéro, il ne pourrait "
+         "plus prendre de risque.",
+         "Cades et passif"),
+        ("Sensibilité aux taux",
+         "Si les taux montent de 1 point, de combien la valeur baisse-t-elle ?",
          r"D_{\text{passif}} = \frac{\sum_k t_k F (1+y)^{-t_k}}{VA\,(1+y)}, \quad "
          r"D_{\text{actif}} = \sum_i \text{poids}_i \times \text{sensi}_i",
-         "Une sensibilité de 3,7 veut dire que la valeur baisse de 3,7 % si les taux montent de 1 point.",
+         "Pour le passif : la date moyenne des versements, pondérée par leur valeur actuelle, divisée par (1 + taux). "
+         "Pour l'actif : la moyenne des sensibilités de chaque ligne, pondérée par son poids.",
+         "Une sensibilité de 3,7 veut dire que la valeur baisse de 3,7 % si les taux montent de 1 point. Le FRR veut que "
+         "l'actif et le passif réagissent de la même façon, pour que la marge ne dépende pas des taux.",
          "Cades et passif (vue détaillée)"),
-        ("Stress test", "L'effet d'un choc de marché sur l'actif, le passif et la marge.",
+        ("Stress test",
+         "Que deviendrait le matelas en cas de crise ?",
          r"\text{choc}_i = \beta_i\,\Delta A - S^{\tau}_i\,\Delta\tau - S^{s}_i\, m_i\,\Delta s, \quad "
          r"\Delta\text{Actif} = \sum_i \text{montant}_i\,\text{choc}_i, \quad \Delta\text{Passif} = -D\,\Delta\tau\, VA",
-         "ΔA = choc actions, Δτ = choc de taux, Δs = choc de spread High Yield, m = part du choc de spread subie par la ligne.",
+         "Pour chaque ligne du portefeuille, on applique trois chocs : la baisse des actions (ΔA) multipliée par son "
+         "bêta, la hausse des taux (Δτ) multipliée par sa sensibilité, et la hausse des spreads (Δs) multipliée par sa "
+         "sensibilité au crédit. On additionne pour tout l'actif, et on applique aussi le choc de taux au passif.",
+         "On voit si le FRR resterait capable de payer la Cades après un krach. Dans le scénario de novembre 2026, le "
+         "matelas passerait de 10,6 à 9,4 Md€.",
          "Cades et passif"),
-        ("Création de valeur d'un mandat", "Ce que rapporte le mandat par rapport au coût de la dette française.",
+        ("Création de valeur d'un mandat",
+         "Ce mandat rapporte-t-il plus que ce que coûte la dette de l'État ?",
          r"\text{Valeur} = \text{encours}\times(R_{€} - \overline{OAT}), \quad "
          r"\text{Apport du gérant} = \text{encours}\times(R_{€} - R_{b,€})",
-         "R€ est le rendement en euros. Pour le High Yield US, on retranche le coût de couverture du dollar "
-         "(SOFR − €STR). La différence entre les deux lignes est la part due au marché du crédit.",
+         "On multiplie l'argent confié au gérant (l'encours) par l'écart entre son rendement en euros et le taux de l'OAT. "
+         "La deuxième ligne fait la même chose avec l'indice au lieu de l'OAT. Pour le High Yield US, on retire d'abord "
+         "le coût de couverture du dollar.",
+         "La première ligne dit combien le mandat crée de valeur pour le FRR, la deuxième quelle part revient au talent "
+         "du gérant. La différence vient du marché du crédit lui-même.",
          "Cades et passif"),
-        ("Futures pour revenir à l'allocation", "Le montant à acheter ou vendre pour coller à l'allocation décidée.",
+        ("Futures pour revenir à l'allocation",
+         "Combien acheter ou vendre pour respecter l'allocation décidée ?",
          r"\text{Futures} = -(\text{poids réel} - \text{poids cible})\times\text{Actif}",
-         "Positif : acheter des futures. Le mandat overlay fait ces ajustements sans toucher aux mandats.",
+         "On mesure l'écart entre le poids réel d'une poche et son poids cible, et on le convertit en euros.",
+         "Positif : il manque de cette poche, on achète des futures. Le mandat overlay corrige ainsi les écarts sans "
+         "toucher aux mandats des gérants.",
          "Cades et passif"),
     ],
     "Couverture de change": [
-        ("Notionnel couvert", "Le montant de devises vendu à terme à chaque réajustement.",
-         r"N = h \times \text{valeur du placement en devise}", "h est le ratio cible : 90 % au FRR.", "Couverture de change"),
-        ("Résultat de la couverture", "Le gain ou la perte des contrats à terme.",
+        ("Notionnel couvert",
+         "Quel montant de devises faut-il vendre à terme ?",
+         r"N = h \times \text{valeur du placement en devise}",
+         "On multiplie la valeur du placement en dollars (ou en yens…) par le ratio de couverture visé, h.",
+         "Avec h = 90 %, pour 1 Md$ placé, on vend 900 M$ à terme. Si le dollar baisse, ces contrats gagnent et "
+         "compensent la perte sur le placement.",
+         "Couverture de change"),
+        ("Résultat de la couverture",
+         "Combien la couverture a-t-elle rapporté ou coûté ?",
          r"\text{P\&L}_t = -N\Big(\frac{1}{X_t} - \frac{1}{X_{t-1}}\Big), \quad "
          r"\text{portage}_t = \frac{N}{X_{t-1}}\,(€STR - \text{taux devise})\,\frac{j}{360}",
-         "X est le cours EUR/devise. Quand le dollar baisse, le contrat gagne et compense la perte du placement. "
-         "Le portage est le coût de la couverture quand les taux américains dépassent les taux européens.",
+         "Première partie : l'effet de la variation du cours de change (X) sur les devises vendues à terme. Deuxième "
+         "partie : le coût de portage, l'écart entre le taux euro et le taux de la devise sur la durée.",
+         "Quand le dollar baisse, la couverture gagne : +163 M€ pour le FRR en 2025. Mais quand les taux américains "
+         "dépassent les taux européens, se couvrir coûte cet écart, environ 1,5 % par an aujourd'hui.",
          "Couverture de change"),
-        ("Écart au ratio cible", "De combien la couverture réelle s'écarte de 90 %.",
+        ("Écart au ratio cible",
+         "La couverture est-elle encore au bon niveau ?",
          r"\text{ratio} = \frac{N}{\text{valeur du placement}}, \quad \text{écart} = \text{ratio} - h",
-         "Le placement bouge entre deux réajustements, donc le ratio dérive. Au-delà de la tolérance, il faut ajuster.",
+         "On divise le montant couvert par la valeur actuelle du placement, et on compare à la cible de 90 %.",
+         "Le placement bouge entre deux réajustements, donc le ratio dérive. S'il sort de la bande de tolérance, il faut "
+         "racheter ou vendre des devises : c'est le suivi des écarts par devise de la mission 3.",
          "Couverture de change"),
-        ("Exposition au change", "La part de l'actif exposée aux devises.",
+        ("Exposition au change",
+         "Quelle part du FRR reste exposée aux devises ?",
          r"\frac{\sum_{\text{devises}}(1-\text{ratio})\times\text{exposition} + \text{émergents}}{\text{Actif}} \le 20\,\%",
-         "La limite légale du FRR est de 20 % (16,9 % fin 2025).", "Couverture de change"),
+         "On additionne la partie non couverte de chaque devise et les devises émergentes (jamais couvertes), puis on "
+         "divise par l'actif total.",
+         "Le FRR n'a pas le droit de dépasser 20 % (16,9 % fin 2025). Plus on est loin de la limite, plus on a de marge "
+         "de manœuvre.",
+         "Couverture de change"),
     ],
     "Options (protection actions)": [
-        ("Prix d'un put (Black-Scholes)", "La valeur d'une option de vente, avec un dividende q.",
+        ("Prix d'un put (Black-Scholes)",
+         "Combien coûte une assurance contre la baisse d'un indice ?",
          r"d_1 = \frac{\ln(S/K) + (r - q + \sigma^2/2)T}{\sigma\sqrt T}, \quad d_2 = d_1 - \sigma\sqrt T, \quad "
          r"\text{Put} = K e^{-rT} N(-d_2) - S e^{-qT} N(-d_1)",
-         "S = niveau de l'indice, K = prix d'exercice, T = durée en années, σ = volatilité, r = taux.",
+         "d₁ et d₂ mesurent la distance entre le niveau de l'indice (S) et le seuil de protection (K), en tenant compte "
+         "de la volatilité (σ), de la durée (T), des taux (r) et des dividendes (q). N() transforme ces distances en "
+         "probabilités. Le prix est ce qu'on toucherait en moyenne, ramené à aujourd'hui.",
+         "Plus le marché est agité (σ élevée) ou plus la protection est longue (T), plus l'assurance coûte cher. C'est "
+         "pour ça que se protéger après une hausse de la volatilité coûte plus cher.",
          "Protection actions"),
-        ("Put spread", "Achat d'un put à 95 % et vente d'un put à 85 % de l'indice.",
+        ("Put spread",
+         "Comment se protéger moins cher ?",
          r"\text{Valeur} = \text{Put}(K_1) - \text{Put}(K_2), \quad "
          r"\text{Payoff} = \max(K_1 - S, 0) - \max(K_2 - S, 0)",
-         "Le put vendu finance une partie de la protection. On est protégé entre −5 % et −15 %, pas au-delà.",
+         "On achète une protection à 95 % du niveau de l'indice (K₁) et on en revend une à 85 % (K₂). À l'échéance, on "
+         "touche la baisse de l'indice entre ces deux niveaux.",
+         "On est protégé entre −5 % et −15 %, pas au-delà. En échange, la protection coûte beaucoup moins cher. Le FRR "
+         "a payé 43,3 M€ en 2025 pour ces assurances, une année où la bourse a monté.",
          "Protection actions"),
-        ("Grecques", "Les sensibilités de la protection.",
+        ("Grecques",
+         "Comment la valeur de la protection réagit-elle au marché ?",
          r"\Delta_{put} = -e^{-qT}N(-d_1), \quad \Gamma = \frac{e^{-qT}\varphi(d_1)}{S\sigma\sqrt T}, \quad "
          r"\nu = S e^{-qT}\varphi(d_1)\sqrt T",
-         "Delta : exposition actions équivalente. Gamma : vitesse à laquelle le delta change. Vega : effet d'un point "
-         "de volatilité en plus. Theta : perte de valeur liée au temps qui passe.",
+         "Ce sont les dérivées du prix : par rapport à l'indice (delta), à la variation du delta (gamma), à la volatilité "
+         "(vega), et au temps qui passe (theta).",
+         "Delta : la protection équivaut à vendre tant d'actions. Gamma : la protection devient plus efficace à mesure "
+         "que l'indice baisse. Vega : elle prend de la valeur quand le marché s'agite. Theta : elle perd un peu de "
+         "valeur chaque jour.",
          "Protection actions (vue détaillée)"),
     ],
 }
@@ -243,18 +374,18 @@ LIMITS = """
 
 
 def render(st):
-    st.markdown("Ce que mesure chaque indicateur, comment il se calcule et comment le lire, puis les hypothèses "
-                "retenues et leurs raisons.")
+    st.markdown("Pour chaque indicateur : la question à laquelle il répond, la formule, ce qu'elle calcule en mots, "
+                "et ce que le résultat veut dire. Puis les hypothèses retenues et leurs raisons.")
     t_ind, t_hyp, t_data = st.tabs(["📐 Indicateurs et formules", "🧭 Hypothèses et choix", "🗂️ Données, vérifications, limites"])
     with t_ind:
         for family, items in INDICATORS.items():
             st.markdown(f"#### {family}")
-            for name, what, formula, read, where in items:
-                with st.expander(f"{name} : {what}"):
+            for name, question, formula, calc, meaning, where in items:
+                with st.expander(f"**{name}** : {question}"):
                     if r", \quad " in formula:  # une équation par ligne, lisible même sur écran étroit
                         formula = r"\begin{gathered}" + formula.replace(r", \quad ", r" \\ ") + r"\end{gathered}"
                     st.latex(formula)
-                    st.markdown(f"**Comment le lire.** {read}")
+                    st.markdown(f"**Ce que calcule la formule.** {calc}\n\n**Ce que ça veut dire.** {meaning}")
                     st.caption(f"Dans l'outil : {where}")
     with t_hyp:
         for name, choice, why, limit in HYPOTHESES:
