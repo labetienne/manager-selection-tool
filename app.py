@@ -70,7 +70,7 @@ HELP = {
     "Tracking error": "Écart de comportement avec l'indice (écart-type annualisé de la différence de rendement).",
     "Information ratio": "Surperformance obtenue par unité d'écart à l'indice. > 0,5 = bon ; < 0 = le fonds fait moins bien que l'indice.",
     "Alpha factoriel": "Rendement que le gérant apporte au-delà de ce qu'expliquent le crédit, les taux et les actions. "
-                       "C'est la vraie valeur ajoutée du gérant.",
+                       "C'est l'indicateur central de l'outil.",
     "Alpha t-stat": "Fiabilité statistique de l'alpha. |t| ≥ 2 : alpha significatif ; sinon il peut relever du hasard.",
     "Bêta": "Sensibilité au benchmark. 1 = bouge comme l'indice ; < 1 = plus défensif.",
     "Max drawdown": "Pire baisse subie entre un plus haut et un plus bas sur la période.",
@@ -252,14 +252,14 @@ st.caption(
 
 first_visit = st.session_state.setdefault("first_visit", True)
 st.session_state.first_visit = False
-with st.expander("ℹ️ À quoi sert cet outil ? — mode d'emploi en 3 étapes", expanded=first_visit):
+with st.expander("ℹ️ Mode d'emploi", expanded=first_visit):
     st.markdown(
-        "Prototype d'outil de **suivi des mandats et de l'overlay** pour la Gestion déléguée du FRR. Il évalue **les "
-        "gérants actuels du FRR** en crédit euro (IG, haut rendement) et High Yield US — **21,5 % du portefeuille** à "
-        "eux deux pour le HY — face à leur indice, au marché et au passif, analyse le **portefeuille réellement détenu**, "
-        "suit la **couverture de change** et les **dérivés**, et prépare les **appels d'offres**.  \n"
-        "*Les mandats du FRR étant dédiés et non publics, chaque gérant est représenté par un fonds ouvert "
-        "de la même stratégie (proxy).*"
+        "Ce prototype suit les gérants actuels du FRR en crédit euro (investment grade et haut rendement) et en High "
+        "Yield US. Le haut rendement pèse à lui seul 21,5 % du portefeuille. Chaque mandat est comparé à son indice, au "
+        "marché et au coût du passif ; l'outil montre aussi ce que le FRR détient vraiment, suit la couverture de change "
+        "et les options, et sert à préparer les appels d'offres.  \n"
+        "*Les mandats du FRR sont dédiés et non publics : chaque gérant est donc représenté par un fonds ouvert qu'il "
+        "gère avec la même stratégie.*"
     )
     s1, s2, s3 = st.columns(3)
     s1.markdown("**① Suivre les mandats**  \nBarre latérale : segment, indice, période. Onglets *Synthèse gérants* et *Gérant* (fiche PDF pour le CSG).")
@@ -373,7 +373,7 @@ with t_synth:
             st.session_state.gerant = picked
             st.toast(f"{short(picked)} sélectionné : ouvrez l'onglet 🔍 Gérant.")
     st.caption("Classement par alpha factoriel. Vert = favorable, rouge = défavorable. "
-               "**Cliquez sur une ligne** pour ouvrir ce fonds dans l'onglet Gérant ; survolez les en-têtes pour les définitions.")
+               "Cliquez sur une ligne pour ouvrir le fonds dans l'onglet Gérant. Les définitions s'affichent au survol des en-têtes.")
 
 # ======================================================================================
 # 2. Analyse gérant
@@ -393,14 +393,14 @@ with t_ger:
         f"({fmt_pct(m['Surperf. annualisée'])} par an, net de frais)."
     )
     if meta["style"] == "Gérant FRR":
-        st.caption(f"🏛️ **Mandat FRR :** {meta['mandate']} · **Fonds utilisé comme proxy :** {meta['name']} ({f}) — {meta['proxy']}.")
+        st.caption(f"🏛️ Mandat FRR : {meta['mandate']}. Fonds utilisé comme proxy : {meta['name']} ({f}), {meta['proxy']}.")
     elif meta["style"] == "Candidat":
         st.caption(f"Candidat externe (non gérant du FRR) : {meta['name']} ({f}), données Morningstar via Yahoo Finance.")
     else:
         st.caption(f"Alternative passive : {meta['name']} ({f}), sert de point de comparaison.")
     if f in SFDR:
         sf = SFDR[f]
-        st.caption(f"🌱 **SFDR : {sfdr_label(f)}**" + (f" — [source]({sf['source']})" if sf["source"] else "")
+        st.caption(f"🌱 SFDR : {sfdr_label(f)}" + (f" ([source]({sf['source']}))" if sf["source"] else "")
                    + (f" ({sf['note']})" if sf["note"] else ""))
 
     c = st.columns(6)
@@ -428,7 +428,7 @@ with t_ger:
         f"({'profil asymétrique favorable' if asym > 0.02 else 'profil défavorable en baisse' if asym < -0.02 else 'profil symétrique'}). "
         f"Le modèle factoriel explique {fr['r2']:.0%} de la variance."
     )
-    st.info(f"**Synthèse — {meta['short']}** ({meta['style'].lower()}). " + synth_body)
+    st.info(f"**{meta['short']} en résumé** ({meta['style'].lower()}). " + synth_body)
 
     pdf_bytes = fiche_pdf(f, seg_name, bench, start, DATA_VERSION, badge, why, level,
                           synth_body.replace("**", ""))
@@ -528,9 +528,9 @@ def opc_category(name: str) -> str:
 with t_ptf:
     ptf = load_portfolio()
     st.markdown(
-        "Analyse des **titres réellement détenus par le FRR au 30/09/2026**, d'après la composition trimestrielle publiée "
-        "sur fondsdereserve.fr (agrégée sur l'ensemble des mandats). Elle illustre le suivi des risques que réalisent la "
-        "Gestion déléguée et le département Risques : concentration, échéances, **limite d'emprise de 3 %**."
+        "Voici les titres que le FRR détenait au 30/09/2026, tous mandats confondus, d'après la composition trimestrielle "
+        "publiée sur fondsdereserve.fr. On y retrouve ce que surveillent la Gestion déléguée et le département des "
+        "Risques : la concentration, les échéances et la limite d'emprise de 3 %."
     )
     tot = ptf.groupby("type")["value"].sum() / 1e9
     k = st.columns(4)
@@ -615,12 +615,12 @@ with t_ptf:
 # ======================================================================================
 with t_ao:
     st.markdown(
-        "**Objectif :** pré-classer les candidats pour établir une **short-list** à rencontrer en due diligence. "
-        "Choisissez un profil de pondération, excluez si besoin les fonds non éligibles, puis lisez le podium.  \n"
-        "*Contexte : le FRR a lancé le 19/10/2026 l'appel d'offres de renouvellement des mandats **HY euro** (jusqu'à 6 "
-        "gérants, fonds dédiés, 5 + 1 ans, candidatures au 30/11/2026). Au FRR, la sélection des offres repose sur des "
-        "critères **majoritairement qualitatifs** (équipe, process, outils, ESG, frais) et passe par l'avis du Comité de "
-        "sélection des gérants (CSG) : cette grille quantitative n'en est qu'un pré-filtre.*"
+        "L'onglet pré-classe les candidats pour constituer une short-list à rencontrer en due diligence. Choisissez un "
+        "profil de pondération, écartez si besoin les fonds non éligibles, puis lisez le podium.  \n"
+        "*Le FRR a lancé le 19/10/2026 l'appel d'offres de renouvellement des mandats HY euro : jusqu'à 6 gérants, en "
+        "fonds dédiés, pour 5 ans renouvelables 1 an, candidatures jusqu'au 30/11/2026. Les offres y sont surtout jugées "
+        "sur des critères qualitatifs (équipe, process, outils, ESG, frais), puis passent devant le Comité de sélection "
+        "des gérants (CSG). Cette grille ne fait qu'un premier tri.*"
     )
 
     # --- 1. Profil de pondération --------------------------------------------------------
@@ -826,16 +826,17 @@ def value_creation_table(years, assets, data_version):
 
 with t_alm:
     st.markdown(
-        "**Pourquoi le FRR investit ainsi.** Depuis la réforme de 2010, le FRR ne reçoit plus de ressources : il **verse "
-        "chaque année à la Cades** (Caisse d'amortissement de la dette sociale) de quoi rembourser la dette sociale — "
-        "2,1 Md€/an de 2011 à 2024, puis **1,45 Md€/an de 2025 à 2033** (loi du 7 août 2020). Ce **passif** est certain, "
-        "daté et en euros : les **actifs de couverture** le sécurisent, les **actifs de performance** doivent battre le "
-        "**coût de la dette française** (chaque euro versé évite à l'État d'emprunter). L'écart entre l'actif et la valeur "
-        "actuelle des versements est la **marge de couverture du passif** : le capital que le FRR peut exposer au risque."
+        "Depuis la réforme de 2010, le FRR ne reçoit plus d'argent : c'est lui qui en verse, chaque année, à la Cades "
+        "(Caisse d'amortissement de la dette sociale), chargée de rembourser la dette de la Sécurité sociale. Il a versé "
+        "2,1 Md€ par an de 2011 à 2024 et verse 1,45 Md€ par an de 2025 à 2033 (loi du 7 août 2020). Ce passif est connu "
+        "d'avance, en montant comme en date. Les actifs de couverture servent à le payer sans surprise. Les actifs de "
+        "performance doivent rapporter plus que ce que coûte la dette française, puisque chaque euro versé évite à l'État "
+        "d'emprunter. La différence entre l'actif et la valeur actuelle des versements s'appelle la **marge de couverture "
+        "du passif** : c'est le capital que le FRR peut se permettre d'exposer au risque."
     )
 
     # --- passif et marge de couverture ---------------------------------------------------
-    st.markdown("##### 🏦 Passif Cades et marge de couverture (au 31/12/2025)")
+    st.markdown("##### Passif Cades et marge de couverture (au 31/12/2025)")
     oat = fred["OAT10"].dropna()
     oat_2025, oat_now = oat.asof(pd.Timestamp("2025-12-31")), oat.iloc[-1]
     c = st.columns(3)
@@ -874,7 +875,7 @@ with t_alm:
         st.markdown(
             f"- Actif : **{fmt_num(a_dur)}** (somme pondérée des lignes ; FRR publié : 2,05)  \n"
             f"- Passif : **{fmt_num(l_dur)}** (FRR publié : 3,71)  \n"
-            f"- Pour **−100 pb** de taux, le passif augmente de {fmt_num(l_dur / 100 * pv * 1000, 0)} M€ et l'actif de "
+            f"- Pour une baisse des taux de 100 pb, le passif augmente de {fmt_num(l_dur / 100 * pv * 1000, 0)} M€ et l'actif de "
             f"{fmt_num(a_dur / 100 * assets_bn * 1000, 0)} M€ : la marge varie de "
             f"**{(a_dur * assets_bn - l_dur * pv) * 10:+,.0f} M€**. L'actif, deux fois plus gros que le passif, compense "
             f"sa sensibilité plus faible ; le décalage se lit surtout sur les actifs de couverture."
@@ -883,7 +884,7 @@ with t_alm:
                    "allonger la duration de l'actif et réduire ce décalage.")
 
     # --- stress tests ---------------------------------------------------------------------
-    st.markdown("##### ⚡ Stress test : impact sur l'actif, le passif et la marge")
+    st.markdown("##### Stress test : impact sur l'actif, le passif et la marge")
     SCEN = {"Correction actuelle (nov. 2026)": (-10, 80, 50), "Choc d'inflation type 2022": (-18, 250, 250),
             "Crise de crédit sévère (type 2008)": (-35, 800, -100), "Personnalisé": (-20, 200, 0)}
     scen = st.segmented_control("Scénario", list(SCEN), default=list(SCEN)[0], key="alm_scen") or list(SCEN)[0]
@@ -915,7 +916,7 @@ with t_alm:
                                    decimal=",", thousands=" "), width="stretch")
 
     # --- vue par poche ----------------------------------------------------------------------
-    st.markdown("##### 🧩 Les trois poches : portefeuille, allocation 2026 et mandats")
+    st.markdown("##### Les trois poches : portefeuille, allocation 2026 et mandats")
     lines = A.FRR_LINES.assign(**{"Montant (Md€)": A.FRR_LINES["Poids"] * assets_bn})
     in_tool = {"High Yield euro": "✅ HY Euro", "High Yield US": "✅ HY US", "Crédit euro IG": "✅ Crédit Euro IG"}
     lines["Suivi dans l'outil"] = lines["Ligne"].map(in_tool).fillna("")
@@ -934,9 +935,9 @@ with t_alm:
                "futures du mandat overlay (onglet *Overlay dérivés*).")
 
     # --- création de valeur vs coût de la dette --------------------------------------------
-    st.markdown("##### 💶 Création de valeur des mandats crédit vs coût de la dette française")
-    st.caption("Indicateur officiel du FRR : **15,6 Md€ de valeur créée depuis 2010** par rapport au coût de la dette "
-               "française, dont **+1,5 Md€ en 2025**. Ici, la même logique appliquée mandat par mandat.")
+    st.markdown("##### Création de valeur des mandats crédit vs coût de la dette française")
+    st.caption("Le FRR mesure sa performance par rapport au coût de la dette française : 15,6 Md€ de valeur créée depuis "
+               "2010, dont 1,5 Md€ en 2025. Le tableau applique le même calcul à chaque mandat crédit.")
     yrs = st.radio("Période", [1, 3], index=1, horizontal=True, format_func=lambda y: f"{y} an{'s' if y > 1 else ''}", key="vc_years")
     vc, debt, carry = value_creation_table(yrs, assets_bn, DATA_VERSION)
     k = st.columns(3)
@@ -949,8 +950,8 @@ with t_alm:
                                   "Création de valeur vs dette (M€/an)": "{:+,.1f}"}, decimal=",", thousands=" ")
                  .background_gradient(subset=["Création de valeur vs dette (M€/an)"], cmap="RdYlGn", vmin=-40, vmax=40),
                  width="stretch", hide_index=True)
-    st.caption(f"Lecture : création de valeur = encours × (rendement − coût de la dette) ; elle se décompose en **marché** "
-               f"(indice − dette) + **gérant** (surperformance). HY US converti en € couvert en retranchant le coût de "
+    st.caption(f"Lecture : création de valeur = encours × (rendement − coût de la dette) ; elle se décompose en une part due au "
+               f"marché (indice − dette) et une part due au gérant (surperformance). HY US converti en € couvert en retranchant le coût de "
                f"couverture SOFR − €STR ({fmt_pct(carry, 2)}/an). Encours estimé : poids du segment fin 2025 réparti à parts "
                f"égales entre mandats ; fonds proxies, nets de frais.")
 
@@ -959,10 +960,10 @@ with t_alm:
 # ======================================================================================
 with t_fx:
     st.markdown(
-        "**Politique du FRR** (rapport annuel 2025) : les actifs de performance en devises développées sont couverts à "
-        "**90 %**, les actifs de couverture à **100 %**, les devises émergentes ne sont **pas couvertes**. L'exposition "
-        "totale au risque de change doit rester **sous 20 % de l'actif** (16,9 % fin 2025). La couverture est confiée au "
-        "mandat overlay « gestion passive du risque de change » (Mercer / Mesirow, ≈ 4 Md€ de notionnels de forwards)."
+        "D'après le rapport annuel 2025, le FRR couvre 90 % de ses actifs de performance en devises développées et 100 % "
+        "de ses actifs de couverture. Il ne couvre pas les devises émergentes. Son exposition totale au change doit rester "
+        "**sous 20 % de l'actif** (16,9 % fin 2025). La couverture est confiée au mandat overlay « gestion passive du risque "
+        "de change », tenu par Mercer avec Mesirow, soit environ 4 Md€ de contrats à terme."
     )
     FX = {"USD": ("EURUSD=X", "SOFR", "^GSPC"), "JPY": ("EURJPY=X", "JPY3M", "^N225"),
           "GBP": ("EURGBP=X", "SONIA", "^FTSE"), "CHF": ("EURCHF=X", "CHF3M", "^SSMI")}
@@ -1067,10 +1068,10 @@ with t_fx:
 # ======================================================================================
 with t_der:
     st.markdown(
-        "**Au FRR :** les *actions couvertes en options* pèsent **7,6 % du portefeuille fin 2025** et passent à **8 %** dans "
-        "l'allocation 2026, pour ≈ **1 Md€ de notionnels** gérés par le mandat overlay « gestion passive des expositions » "
-        "(Amundi, BNP Paribas AM). C'est une **assurance contre la baisse des actions** (zone euro et US), dont le coût net "
-        "a été de **−43,3 M€ en 2025**. Simulation ci-dessous : un *put spread* renouvelé à chaque échéance."
+        "Les actions couvertes par des options représentaient 7,6 % du portefeuille du FRR fin 2025, et l'allocation 2026 "
+        "les porte à 8 %. Le mandat overlay « gestion passive des expositions » (Amundi et BNP Paribas AM) gère environ "
+        "1 Md€ de notionnels. Il s'agit d'une assurance contre la baisse des actions de la zone euro et des États-Unis, qui "
+        "a coûté 43,3 M€ en 2025. La simulation ci-dessous renouvelle un *put spread* à chaque échéance."
     )
     UNDERLYINGS = {"Euro Stoxx 50": ("^STOXX50E", "ESTR"), "S&P 500": ("^GSPC", "SOFR")}
 
@@ -1121,7 +1122,7 @@ with t_der:
     last_row = rep.iloc[-1]
     days_left = (pos["expiry"] - spot_s.index[-1]).days
     cushion = S_now / pos["K1"] - 1
-    st.markdown("##### 🗓️ Cette semaine")
+    st.markdown("##### Cette semaine")
     k = st.columns(4)
     k[0].metric("P&L de la semaine", f"{last_row['P&L semaine (M€)']:+.1f} M€",
                 help="Variation de valeur de la protection depuis vendredi dernier.")
@@ -1207,7 +1208,7 @@ with t_der:
         st.caption("Valorisation Black-Scholes ; volatilité implicite approchée par la volatilité réalisée 1 mois + prime de vol.")
 
     # --- futures : alignement du portefeuille sur l'allocation ---------------------------
-    st.markdown("##### 📐 Exposition tactique : portefeuille vs allocation stratégique")
+    st.markdown("##### Exposition tactique : portefeuille vs allocation stratégique")
     st.caption("Le mandat overlay utilise des futures sur indices (≈ 2 Md€ de notionnels) pour aligner les expositions réelles "
                "sur celles décidées par la gouvernance, sans toucher aux mandats. Données : rapport annuel 2025 (fin 2025).")
     alloc = pd.DataFrame(
@@ -1229,28 +1230,33 @@ with t_meth:
     st.markdown(
         """
 ### Objectif
-Prototype d'outil d'aide à la **sélection et au suivi de gérants délégués**, sur les segments
-Crédit Euro et High Yield US, appliqué aux **gérants actuels du FRR**.
+Ce prototype aide à sélectionner et à suivre les gérants délégués du FRR sur trois segments : crédit euro
+investment grade, High Yield euro et High Yield US. Il s'appuie sur les gérants qui tiennent aujourd'hui les mandats.
 
 ### Données
-- **Gérants** : attributaires des marchés 2020FRR01 (crédit euro IG et HY, 2021) et 2022FRR01 (HY US, 2023),
-  d'après les *Listes des marchés publics conclus par le FRR* (fondsdereserve.fr).
-- **Fonds proxies** : pour chaque gérant, un fonds ouvert de la même stratégie (parts de capitalisation ou
-  ajustées des coupons, Yahoo Finance / Morningstar) → rendements *total return* nets de frais.
-  Historique disponible depuis mars 2022 pour les fonds UCITS européens. Frais non disponibles pour la plupart d'entre eux.
-- **Candidats externes** : 63 fonds de grands gérants (29 en HY US, 17 en HY €, 17 en crédit € IG : PIMCO, Capital Group, Loomis Sayles, Amundi, Robeco, Pictet, Muzinich, Schroders…),
-  parts institutionnelles ou de capitalisation, sélectionnés pour leur corrélation à l'indice (0,80 à 0,98).
-- **Benchmarks** : indices ICE BofA US / Euro High Yield Total Return (FRED, ~3 ans d'historique gratuit)
-  ou ETF proxy pour un historique plus long.
-- **Facteurs** : spreads OAS ICE BofA HY (FRED), ETF d'emprunts d'État (IEF / iShares Core € Govt),
-  indices actions (S&P 500 / Euro Stoxx 50). Taux courts : SOFR et €STR.
-- Fréquence **hebdomadaire** (vendredi) pour synchroniser les places US et européennes.
-- **Portefeuille FRR** : composition publiée au 30/09/2026 (PDF de 47 pages, extraite ligne à ligne, totaux rapprochés).
-- **ESG (SFDR)** : article 6, 8 ou 9 de chaque fonds européen, relevé à la main dans sa documentation
-  (prospectus, annexe SFDR, factsheet) avec la source, dans `data/sfdr.csv`. 34 fonds en article 8, 1 en article 6,
-  11 non trouvés. Non applicable aux fonds américains. Critère du scoring et filtre éliminatoire « article 8 minimum ».
-- **Overlay** : politique de couverture (90 % / 100 %, limite de 20 %), notionnels des mandats overlay et allocation
-  fin 2025 issus du rapport annuel 2025 ; expositions par devise = hypothèses modifiables.
+- Gérants : attributaires des marchés 2020FRR01 (crédit euro IG et HY, 2021) et 2022FRR01 (HY US, 2023), d'après les
+  *Listes des marchés publics conclus par le FRR* publiées sur fondsdereserve.fr.
+- Fonds proxies : pour chaque gérant, un fonds ouvert de la même stratégie (parts de capitalisation ou ajustées des
+  coupons, via Yahoo Finance et Morningstar). Les rendements sont nets de frais, coupons réinvestis. L'historique des
+  fonds européens commence en mars 2022, et les frais manquent pour la plupart d'entre eux.
+- Candidats externes : 63 fonds de grandes sociétés de gestion (29 en HY US, 17 en HY €, 17 en crédit € IG, parmi
+  lesquelles PIMCO, Capital Group, Loomis Sayles, Amundi, Robeco, Pictet, Muzinich ou Schroders). Ce sont des parts
+  institutionnelles ou de capitalisation, retenues pour leur corrélation à l'indice (0,80 à 0,98).
+- Indices : ICE BofA US et Euro High Yield Total Return (FRED, environ 3 ans d'historique gratuit), ou un ETF quand il
+  faut remonter plus loin.
+- Facteurs : spreads OAS ICE BofA HY (FRED), ETF d'emprunts d'État (IEF, iShares Core € Govt), indices actions
+  (S&P 500, Euro Stoxx 50). Taux courts : SOFR et €STR. Coût de la dette française : OAT 10 ans (FRED, mensuel).
+- Les rendements sont hebdomadaires, arrêtés le vendredi, pour que les marchés américain et européen soient comparés
+  à la même date.
+- Portefeuille FRR : composition publiée au 30/09/2026, un PDF de 47 pages extrait ligne à ligne, totaux rapprochés.
+- ESG : l'article SFDR (6, 8 ou 9) de chaque fonds européen a été relevé à la main dans sa documentation (prospectus,
+  annexe SFDR, factsheet), avec la source, dans `data/sfdr.csv`. On compte 34 fonds en article 8, 1 en article 6 et 11
+  non trouvés. Le critère ne s'applique pas aux fonds américains.
+- Actif-passif : versements à la Cades de 1,45 Md€ par an jusqu'en 2033 (loi du 7 août 2020), actif et expositions
+  fin 2025 tirés du rapport annuel 2025. Les sensibilités des lignes aux chocs sont des hypothèses, détaillées dans
+  l'onglet.
+- Overlay : politique de couverture (90 % et 100 %, limite de 20 %), notionnels des mandats overlay et allocation
+  fin 2025, d'après le rapport annuel 2025. Les expositions par devise sont des hypothèses modifiables.
 
 ### Indicateurs
 | Indicateur | Définition |
@@ -1258,20 +1264,21 @@ Crédit Euro et High Yield US, appliqué aux **gérants actuels du FRR**.
 | Tracking error | écart-type annualisé de (fonds − indice) |
 | Information ratio | surperformance annualisée / tracking error |
 | Alpha de Jensen | constante de la régression (r − rf) = α + β (rb − rf) |
-| **Alpha factoriel** | constante de (r − rf) = α + β₁·(−ΔOAS) + β₂·r_taux + β₃·r_actions — la valeur ajoutée *après* rémunération des expositions de marché |
+| Alpha factoriel | constante de (r − rf) = α + β₁·(−ΔOAS) + β₂·r_taux + β₃·r_actions : ce que le gérant apporte une fois payées ses expositions au crédit, aux taux et aux actions |
 | Up / down capture | rendement moyen du fonds / de l'indice les semaines de hausse / de baisse |
 
-### Limites (à garder en tête)
-- Les **fonds proxies ne sont pas les mandats du FRR** : contraintes ESG, frais négociés et taille diffèrent.
-  Certains proxies sont imparfaits (AllianceBernstein, BFT IM, Degroof Petercam), voir l'onglet Gérant.
-- **Candidats** : échantillon de grands gérants du marché (fonds ouverts, données Morningstar via Yahoo),
-  non exhaustif ; un vrai appel d'offres porterait sur les sociétés ayant candidaté.
-- **Biais du survivant** : l'univers ne contient que des fonds encore existants.
-- 3 ans d'historique hebdomadaire = ~156 points : les alphas sont rarement significatifs → la statistique
-  ne suffit pas, d'où l'importance de la **due diligence qualitative** (process, équipe, risques, ESG).
-- Pas de série OAS IG € gratuite : le facteur crédit du segment IG utilise le spread HY € en proxy.
-- Options : volatilité implicite approchée par la vol réalisée + prime ; pas de smile ni de coûts de transaction.
-- Couverture de change : forward modélisé par le différentiel de taux courts (parité des taux couverte),
-  sans base cross-currency.
+### Limites
+- Les fonds proxies ne sont pas les mandats du FRR : contraintes ESG, frais négociés et tailles diffèrent. Certains
+  proxies collent mal à la stratégie du mandat ; l'onglet Gérant le signale fonds par fonds.
+- Les candidats forment un échantillon de grands gérants, pas l'univers complet. Un vrai appel d'offres porterait sur
+  les sociétés qui ont candidaté.
+- Biais du survivant : l'univers ne contient que des fonds qui existent encore.
+- Trois ans de données hebdomadaires font environ 156 points. Avec si peu, un alpha est rarement significatif, et c'est
+  pour cela que la due diligence qualitative (process, équipe, risques, ESG) reste indispensable.
+- Il n'existe pas de série OAS gratuite pour l'IG euro : le facteur crédit du segment IG utilise le spread HY euro.
+- Options : la volatilité implicite est approchée par la volatilité réalisée plus une prime, sans smile ni coûts de
+  transaction.
+- Couverture de change : le contrat à terme est modélisé par l'écart de taux courts (parité des taux couverte), sans
+  base cross-currency.
 """
     )
