@@ -21,12 +21,13 @@ import importlib
 
 import analytics as A
 import data as D
+import methode
 import report
 import report_frr
 
 # Streamlit Cloud ne recharge pas les modules locaux quand seul leur fichier change :
 # sans ceci, un nouvel app.py peut tourner avec un ancien analytics.py en mémoire.
-for _mod in (A, D, report, report_frr):
+for _mod in (A, D, methode, report, report_frr):
     importlib.reload(_mod)
 build_fiche = report.build_fiche
 
@@ -280,7 +281,7 @@ with st.expander("ℹ️ Mode d'emploi", expanded=first_visit):
 
 t_synth, t_ger, t_ptf, t_alm, t_fx, t_der, t_ao, t_meth = st.tabs(
     ["🏁 Classement des gérants", "🔍 Fiche gérant", "🏛️ Ce que détient le FRR", "🏦 Cades et passif",
-     "💱 Couverture de change", "🛡️ Protection actions", "🏆 Appel d'offres", "📘 Méthode"])
+     "💱 Couverture de change", "🛡️ Protection actions", "🏆 Appel d'offres", "📘 Méthode et formules"])
 
 
 def en_clair(where, text):
@@ -1298,58 +1299,4 @@ with t_der:
 # 6. Méthodologie
 # ======================================================================================
 with t_meth:
-    st.markdown(
-        """
-### Objectif
-Ce prototype aide à sélectionner et à suivre les gérants délégués du FRR sur trois segments : crédit euro
-investment grade, High Yield euro et High Yield US. Il s'appuie sur les gérants qui tiennent aujourd'hui les mandats.
-
-### Données
-- Gérants : attributaires des marchés 2020FRR01 (crédit euro IG et HY, 2021) et 2022FRR01 (HY US, 2023), d'après les
-  *Listes des marchés publics conclus par le FRR* publiées sur fondsdereserve.fr.
-- Fonds proxies : pour chaque gérant, un fonds ouvert de la même stratégie (parts de capitalisation ou ajustées des
-  coupons, via Yahoo Finance et Morningstar). Les rendements sont nets de frais, coupons réinvestis. L'historique des
-  fonds européens commence en mars 2022, et les frais manquent pour la plupart d'entre eux.
-- Candidats externes : 63 fonds de grandes sociétés de gestion (29 en HY US, 17 en HY €, 17 en crédit € IG, parmi
-  lesquelles PIMCO, Capital Group, Loomis Sayles, Amundi, Robeco, Pictet, Muzinich ou Schroders). Ce sont des parts
-  institutionnelles ou de capitalisation, retenues pour leur corrélation à l'indice (0,80 à 0,98).
-- Indices : ICE BofA US et Euro High Yield Total Return (FRED, environ 3 ans d'historique gratuit), ou un ETF quand il
-  faut remonter plus loin.
-- Facteurs : spreads OAS ICE BofA HY (FRED), ETF d'emprunts d'État (IEF, iShares Core € Govt), indices actions
-  (S&P 500, Euro Stoxx 50). Taux courts : SOFR et €STR. Coût de la dette française : OAT 10 ans (FRED, mensuel).
-- Les rendements sont hebdomadaires, arrêtés le vendredi, pour que les marchés américain et européen soient comparés
-  à la même date.
-- Portefeuille FRR : composition publiée au 30/09/2026, un PDF de 47 pages extrait ligne à ligne, totaux rapprochés.
-- ESG : l'article SFDR (6, 8 ou 9) de chaque fonds européen a été relevé à la main dans sa documentation (prospectus,
-  annexe SFDR, factsheet), avec la source, dans `data/sfdr.csv`. On compte 34 fonds en article 8, 1 en article 6 et 11
-  non trouvés. Le critère ne s'applique pas aux fonds américains.
-- Actif-passif : versements à la Cades de 1,45 Md€ par an jusqu'en 2033 (loi du 7 août 2020), actif et expositions
-  fin 2025 tirés du rapport annuel 2025. Les sensibilités des lignes aux chocs sont des hypothèses, détaillées dans
-  l'onglet.
-- Overlay : politique de couverture (90 % et 100 %, limite de 20 %), notionnels des mandats overlay et allocation
-  fin 2025, d'après le rapport annuel 2025. Les expositions par devise sont des hypothèses modifiables.
-
-### Indicateurs
-| Indicateur | Définition |
-|---|---|
-| Tracking error | écart-type annualisé de (fonds − indice) |
-| Information ratio | surperformance annualisée / tracking error |
-| Alpha de Jensen | constante de la régression (r − rf) = α + β (rb − rf) |
-| Alpha factoriel | constante de (r − rf) = α + β₁·(−ΔOAS) + β₂·r_taux + β₃·r_actions : ce que le gérant apporte une fois payées ses expositions au crédit, aux taux et aux actions |
-| Up / down capture | rendement moyen du fonds / de l'indice les semaines de hausse / de baisse |
-
-### Limites
-- Les fonds proxies ne sont pas les mandats du FRR : contraintes ESG, frais négociés et tailles diffèrent. Certains
-  proxies collent mal à la stratégie du mandat ; l'onglet Fiche gérant le signale fonds par fonds.
-- Les candidats forment un échantillon de grands gérants, pas l'univers complet. Un vrai appel d'offres porterait sur
-  les sociétés qui ont candidaté.
-- Biais du survivant : l'univers ne contient que des fonds qui existent encore.
-- Trois ans de données hebdomadaires font environ 156 points. Avec si peu, un alpha est rarement significatif, et c'est
-  pour cela que la due diligence qualitative (process, équipe, risques, ESG) reste indispensable.
-- Il n'existe pas de série OAS gratuite pour l'IG euro : le facteur crédit du segment IG utilise le spread HY euro.
-- Options : la volatilité implicite est approchée par la volatilité réalisée plus une prime, sans smile ni coûts de
-  transaction.
-- Couverture de change : le contrat à terme est modélisé par l'écart de taux courts (parité des taux couverte), sans
-  base cross-currency.
-"""
-    )
+    methode.render(st)
