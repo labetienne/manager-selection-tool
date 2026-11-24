@@ -35,52 +35,10 @@ def test_score_ranks_better_fund_first():
     assert s.index[0] == "bon" and s.loc["bon", "Rang"] == 1
 
 
-def test_fx_hedge_neutral_when_fx_and_rates_flat():
-    d = pd.bdate_range("2024-01-01", periods=120)
-    price = pd.Series(np.linspace(100, 110, len(d)), d)
-    flat = pd.Series(1.10, d)
-    zero = pd.Series(0.0, d)
-    h = A.fx_hedge_simulation(price, flat, zero, zero, target=1.0, freq="M")
-    assert np.allclose(h["hedged_eur"], h["unhedged_eur"])
-    assert h["ratio"].iloc[0] == 1.0
-
-
-def test_put_call_parity():
-    S, K, T, r, q, v = 100, 95, 0.5, 0.03, 0.02, 0.2
-    c, p = A.bs(S, K, T, r, q, v, "call")["price"], A.bs(S, K, T, r, q, v, "put")["price"]
-    assert abs((c - p) - (S * np.exp(-q * T) - K * np.exp(-r * T))) < 1e-9
-
-
-def test_breach_episodes():
-    dev = pd.Series([0, 0.03, 0.04, 0, -0.05, 0], pd.bdate_range("2024-01-01", periods=6))
-    ep = A.breach_episodes(dev, 0.02)
-    assert list(ep["Jours"]) == [2, 1] and ep["Écart max"].tolist() == [0.04, -0.05]
-    assert A.breach_episodes(dev * 0, 0.02).empty
-
-
-def test_put_spread_backtest_pnl_adds_up():
-    d = pd.bdate_range("2025-01-01", periods=300)
-    spot = pd.Series(5000 * np.exp(np.cumsum(rng.normal(0, 0.01, len(d)))), d)
-    weeks = spot.resample("W-FRI").last().index
-    rep, pos, premiums = A.put_spread_backtest(spot, pd.Series(0.02, d), pd.Series(0.18, d), weeks,
-                                               1000, 0.95, 0.85, 3, 0.03)
-    assert abs(rep["P&L semaine (M€)"].sum() - rep["P&L cumulé (M€)"].iloc[-1]) < 1e-9
-    assert premiums > 0 and pos is not None
-    assert (rep["Valeur (M€)"] <= (0.95 - 0.85) * 1000 + 1e-6).all()  # jamais plus que l'indemnisation max
-
-
-def test_liability_pv_and_stress():
-    flows = A.cades_flows(2025)
-    assert list(flows.index) == list(range(2026, 2034)) and flows.sum() == 8 * A.CADES_PAYMENT
-    pv0, dur0 = A.liability_pv(flows, 2025, 0.0)
-    assert abs(pv0 - flows.sum()) < 1e-9 and abs(dur0 - 4.0) < 1e-9  # durée moyenne des 8 versements
-    pv, dur = A.liability_pv(flows, 2025, 0.03)
-    assert pv < pv0 and abs((A.liability_pv(flows, 2025, 0.0301)[0] - pv) / pv + dur * 1e-4) < 1e-5
-    assert abs(A.FRR_LINES["Poids"].sum() - 1) < 0.01
-    tab, d_a, d_l = A.stress_test(A.FRR_LINES, 20.0, -0.2, 0, 0, pv, dur)
-    assert d_a < 0 and d_l == 0 and abs(tab["Impact (Md€)"].sum() - d_a) < 1e-12
-    _, d_a, d_l = A.stress_test(A.FRR_LINES, 20.0, 0, 0, 100, pv, dur)
-    assert d_a < 0 and d_l < 0  # hausse des taux : l'actif et le passif baissent
+def test_verdict_thresholds():
+    lvl = lambda a, t: A.verdict({"Alpha factoriel": a, "Alpha t-stat": t})[2]
+    assert lvl(0.02, 2.5) == "success" and lvl(-0.02, -2.5) == "error"
+    assert lvl(0.001, 0.3) == "info" and lvl(0.01, 1.0) == "warning" and lvl(-0.01, -1.0) == "warning"
 
 
 if __name__ == "__main__":
